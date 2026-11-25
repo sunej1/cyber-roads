@@ -187,5 +187,20 @@ export function generateBuildings() {
       add({ x, z, w, d, h, type, style });
     }
   }
+  for (let row = -5; row <= 6; row++) {
+    for (let column = -6; column <= 5; column++) {
+      const x = column * 136, z = row * 125;
+      if (Math.hypot((x + 95) / 965, (z - 35) / 920) > 1) continue;
+      if (buildings.some(b => Math.abs(b.x - x) < b.w / 2 + 53
+        && Math.abs(b.z - z) < b.d / 2 + 43)) continue;
+      for (const side of [-1, 1]) {
+        add({
+          x: x + side * 30, z: z + (random() - .5) * 16,
+          w: 37 + random() * 12, d: 29 + random() * 15, h: 8 + random() * 7,
+          type: 0, style: (row + column + (side === 1 ? 1 : 0) + 20) % 4,
+        });
+      }
+    }
+  }
   return buildings;
 }

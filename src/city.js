@@ -326,6 +326,11 @@ function towers(scene, buildings) {
       beacons.push([b.x + top.w * .19, b.h + mast, b.z, 1.1, .76, 1.1]);
     }
     caps.push([b.x, b.h + 1.2, b.z + top.d * .14, top.w * .30, 2.5, top.d * .24]);
+    if (b.h < 17) {
+      ledges.push([b.x, b.h - .45, zFront + 1.1, top.w * .91, .48, 2.4]);
+      lit.push([b.x, b.h - .55, zFront + 2.2, top.w * .84, .19, .2]);
+      caps.push([b.x - top.w * .23, b.h + 1.06, b.z - 2.2, top.w * .17, 2, top.d * .19]);
+    }
     if (b.sign) {
       const sign = billboard(b, index);
       sign.position.z = zFront + .8;
