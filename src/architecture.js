@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { randomFor } from './flight.js';
 import { addScreens, campaignFor } from './ads.js';
 import { batch, beam, box, line, neon, texture } from './scene-parts.js';
+import { drawSurface, surfaceMap } from './surface-materials.js';
+import { facadeClusters } from './streetscape.js';
 
 const { Mesh, MeshStandardMaterial } = THREE;
 const glassPalettes = [
@@ -19,70 +21,89 @@ function facadeMaterial(style) {
   if (facadeMaterials[style]) return facadeMaterials[style];
   const [base, frame, lights, cols, rows, activity] = glassPalettes[style];
   const concrete = style === 0 || style === 3 || style === 4;
-  const makeMap = emission => texture(512, 512, ctx => {
-    const random = randomFor(900 + style);
-    ctx.fillStyle = emission ? '#000' : base;
-    ctx.fillRect(0,0,512,512);
-    const w = 512 / cols, h = 512 / rows;
-    for (let row = 0; row < rows; row++) {
-      const y = row*h;
-      const slab = concrete ? .29 : row%4===2 ? .21 : .115;
-      if (!emission) {
-        ctx.fillStyle = frame;
-        ctx.fillRect(0,y,512,h*slab);
-        ctx.fillStyle = '#080b0f78';
-        ctx.fillRect(0,y+h*slab-2,512,3);
-        ctx.fillStyle = '#a5ada01b';
-        ctx.fillRect(0,y+1,512,2);
+  const sample = style===3 ? 2 : concrete ? 0 : 1;
+  const makeMap = channel => {
+    const emission=channel==='emission';
+    const relief=channel==='height';
+    const rough=channel==='roughness';
+    const paint=ctx=>{
+      const random=randomFor(900+style);
+      const size=ctx.canvas.width;
+      ctx.fillStyle=emission?'#000':relief?'#8a8a8a':rough?'#e1e1e1':base;
+      ctx.fillRect(0,0,size,size);
+      if (!emission && !rough) {
+        ctx.save();
+        ctx.globalAlpha=relief ? .49 : .89;
+        if (relief) ctx.filter='grayscale(1) contrast(1.18) brightness(1.27)';
+        drawSurface(ctx,sample);
+        ctx.restore();
       }
-      for (let col=0;col<cols;col++) {
-        const x=col*w, active=random()<activity, glow=lights[Math.floor(random()*lights.length)];
-        const blinds = random(), shade = random();
-        const inset = style===0 ? .24 : style===1 ? .064 : .15;
-        const open = w*(1-inset*2);
-        const top = y+h*slab+h*.056, tall = h*(.83-slab);
-        if (!emission) {
-          ctx.fillStyle = '#14171b';
-          ctx.fillRect(x+w*inset-2,top-2,open+4,tall+3);
-          ctx.fillStyle = '#888f7c43';
-          ctx.fillRect(x+w*inset-1,top+tall,open+2,1.7);
-          if (concrete && shade<.35) {
-            ctx.fillStyle = '#151d2263';
-            ctx.fillRect(x+1,y+1,w*.09,h);
+      const w=size/cols, h=size/rows;
+      for (let row=0;row<rows;row++) {
+        const y=row*h;
+        const slab=concrete?.29:row%4===2?.21:.115;
+        if (!emission && !rough) {
+          ctx.fillStyle=relief?'#acacac':frame+'42';
+          ctx.fillRect(0,y,size,h*slab);
+          ctx.fillStyle=relief?'#4a4a4a':'#0b121380';
+          ctx.fillRect(0,y+h*slab-2.4,size,2.8);
+          ctx.fillStyle=relief?'#bcbcbc':'#d8d7c33c';
+          ctx.fillRect(0,y+1,size,1.8);
+        }
+        for (let col=0;col<cols;col++) {
+          const x=col*w,active=random()<activity,glow=lights[Math.floor(random()*lights.length)];
+          const blinds=random(),shade=random();
+          const inset=style===0?.24:style===1?.064:.15;
+          const open=w*(1-inset*2),left=x+w*inset;
+          const top=y+h*slab+h*.056,tall=h*(.83-slab);
+          if (!emission && !rough) {
+            ctx.fillStyle=relief?'#bababa':'#a6ab9b6b';
+            ctx.fillRect(left-3,top-2,open+6,tall+5);
+            ctx.fillStyle=relief?'#646464':'#101415';
+            ctx.fillRect(left-1,top-1,open+2,tall+2);
+            if (!relief && concrete && shade<.6) {
+              const runoff=ctx.createLinearGradient(0,top+tall,0,top+tall+h*.37);
+              runoff.addColorStop(0,'#080c126d');
+              runoff.addColorStop(1,'#080c1200');
+              ctx.fillStyle=runoff;
+              ctx.fillRect(left+shade*open,top+tall,1+shade*w*.17,h*.37);
+            }
+          }
+          if (emission && !active) continue;
+          if (relief || rough) ctx.fillStyle=relief?'#303030':shade>.7?'#5a5a5a':'#353535';
+          else {
+            const pane=ctx.createLinearGradient(0,top,0,top+tall);
+            pane.addColorStop(0,emission?glow:active?'#7e877b':'#394751');
+            pane.addColorStop(.52,emission?glow:active?'#58625b':'#19282d');
+            pane.addColorStop(1,emission?'#292420':'#0b1319');
+            ctx.fillStyle=pane;
+          }
+          ctx.fillRect(left,top,open,tall);
+          ctx.fillStyle=relief?'#9a9a9a':rough?'#929292':emission?'#17100a9e':frame;
+          ctx.fillRect(x+w*.51,top,Math.max(1.3,w*.045),tall);
+          if (blinds<.44 && !rough) {
+            for (let i=0;i<4;i++) ctx.fillRect(left,top+1+i*tall/7,open,1.08);
+          }
+          if (!emission && !relief && !rough && shade>.62) {
+            ctx.fillStyle='#121c21a0';
+            ctx.fillRect(left+open*.73,top,open*.24,tall);
           }
         }
-        if (emission && !active) continue;
-        const pane = ctx.createLinearGradient(0,top,0,top+tall);
-        pane.addColorStop(0,emission ? glow : active ? '#859187' : '#243239');
-        pane.addColorStop(.54,emission ? glow : active ? '#4f5c5b' : '#141d24');
-        pane.addColorStop(1,emission ? '#2d291f' : '#0b161b');
-        ctx.fillStyle = pane;
-        ctx.fillRect(x+w*inset,top,open,tall);
-        ctx.fillStyle = emission ? '#120d0a75' : frame;
-        ctx.fillRect(x+w*.51,top,Math.max(1.25,w*.045),tall);
-        if (blinds < .47) {
-          for (let l=0;l<4;l++) {
-            ctx.fillRect(x+w*inset,top+1+l*tall/7,open,1.15);
-          }
-        }
       }
+    };
+    if (emission || rough) {
+      const map=texture(512,512,paint);
+      map.wrapS=map.wrapT=THREE.RepeatWrapping;
+      if (rough) map.colorSpace=THREE.NoColorSpace;
+      return map;
     }
-    if (!emission) {
-      ctx.fillStyle = '#aba99d22';
-      for (let i=0;i<2800;i++) ctx.fillRect(random()*512,random()*512,random()*6,1);
-      for (let i=0;i<53;i++) {
-        const x=random()*512, y=random()*512;
-        const grime=ctx.createLinearGradient(0,y,0,y+29);
-        grime.addColorStop(0,'#131d205e'); grime.addColorStop(1,'#131d2000');
-        ctx.fillStyle=grime;
-        ctx.fillRect(x,y,1+random()*5,29);
-      }
-    }
+    return surfaceMap(1024,paint,relief);
+  };
+  const material = new MeshStandardMaterial({
+    map:makeMap('color'), emissiveMap:makeMap('emission'), bumpMap:makeMap('height'), roughnessMap:makeMap('roughness'),
+    emissive:'#ffffff', emissiveIntensity:.87, bumpScale:concrete?.075:.044, roughness:1,
+    metalness:concrete?.07:.32,
   });
-  const map=makeMap(false), emissiveMap=makeMap(true);
-  for (const pattern of [map,emissiveMap]) pattern.wrapS=pattern.wrapT=THREE.RepeatWrapping;
-  const material = new MeshStandardMaterial({ map, emissiveMap, emissive: '#ffffff', emissiveIntensity: .94,
-    roughness: concrete ? .81 : .39, metalness: concrete ? .11 : .35 });
   facadeMaterials[style] = material;
   return material;
 }
@@ -121,8 +142,11 @@ function signItem(x,y,z,w,h,yaw,b) {
 const roof = new MeshStandardMaterial({ color: '#3c4140', roughness: .77, metalness: .23, side: THREE.DoubleSide });
 function addFacades(scene, slices) {
   const roofs = [];
+  const detailFaces = [];
   glassPalettes.forEach((_, style) => {
     const vertices = [], uv = [];
+    const [, , ,cols,rows]=glassPalettes[style];
+    const concrete=style===0 || style===3 || style===4;
     for (const { x, z, w, d, base, h, topW, topD, topX, topZ, bevel, sides, phase, twist, windowOffset, building } of slices[style]) {
       const lower = profile(x,z,w,d,bevel,sides,phase).map(([x,z])=>turn(x,z,building));
       const upper = profile(topX,topZ,topW,topD,bevel,sides,phase+twist).map(([x,z])=>turn(x,z,building));
@@ -137,6 +161,11 @@ function addFacades(scene, slices) {
         vertices.push(ax,low,az, bx,low,bz, dx,top,dz, bx,low,bz, cx,top,cz, dx,top,dz);
         uv.push(u0,v0, u0+u,v0, u0,v0+v, u0+u,v0, u0+u,v0+v, u0,v0+v);
         roofs.push(roofX,top,roofZ, dx,top,dz, cx,top,cz);
+        if (low<169) detailFaces.push({
+          ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,concrete,style,index:i,
+          b:{ h:building.h,type:building.type,seed:(Math.imul(Math.round(building.x*23),0x45d9f3b)
+            ^ Math.imul(Math.round(building.z*31),0x119de1f3)) >>> 0 },
+        });
       }
     }
     if (!vertices.length) return;
@@ -146,11 +175,13 @@ function addFacades(scene, slices) {
     geometry.computeVertexNormals();
     scene.add(new Mesh(geometry, facadeMaterial(style)));
   });
-  if (!roofs.length) return;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(roofs, 3));
-  geometry.computeVertexNormals();
-  scene.add(new Mesh(geometry, roof));
+  if (roofs.length) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(roofs, 3));
+    geometry.computeVertexNormals();
+    scene.add(new Mesh(geometry, roof));
+  }
+  return facadeClusters(detailFaces);
 }
 
 export const trim = new MeshStandardMaterial({ color: '#484847', roughness: .81, metalness: .26 });
@@ -475,8 +506,8 @@ export function towers(scene, buildings, local = false) {
   batch(scene,wedge,panels,slopeRoofs);
   lights.forEach((items,style)=>batch(scene,box,towerNeon[style],items));
   batch(scene,box,beacon,beacons);
-  addFacades(scene,slices);
   addScreens(scene,screens,plaques);
+  return addFacades(scene,slices);
 }
 
 function ventStrike(vents,x,y,z,w) {

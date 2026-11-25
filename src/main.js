@@ -3,6 +3,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RayLightingPass } from './ray-lighting.js';
+import { installSkyProbe } from './surface-materials.js';
 import { createCity } from './city.js';
 import { createCraft } from './craft.js';
 import { advanceFlight, departure, districtAt, districts, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route, routeSamples, shore } from './flight.js';
@@ -22,6 +24,7 @@ const districtButton = element('district-tour');
 const landmarkText = element('landmark-name');
 const cameraButton = element('camera');
 const pauseButton = element('pause');
+const lightingButton = element('lighting');
 const restartButton = element('restart');
 const recoverButton = element('recover');
 const modeButton = element('mode');
@@ -122,7 +125,7 @@ const desiredTarget = new THREE.Vector3();
 const target = new THREE.Vector3();
 const origin = new THREE.Vector3();
 const pace = 1 / 120;
-let renderer, scene, camera, composer, city, craft;
+let renderer, scene, camera, composer, city, craft, rayPass;
 let status = 'ready';
 let flight = newFlight();
 let guided = true;
@@ -193,6 +196,14 @@ function startFlight(useGuide, restart = false) {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   cameraButton.setAttribute('aria-label', noseCamera ? 'Switch to chase view' : 'Switch to nose view');
 }
+
+function setRayLighting(enabled) {
+  if (!rayPass) return;
+  rayPass.enabled=enabled;
+  lightingButton.setAttribute('aria-pressed',String(enabled));
+}
+
+lightingButton.addEventListener('click',()=>setRayLighting(!rayPass?.enabled));
 
 function changeCamera() {
   if (status !== 'flying') return;
@@ -539,6 +550,7 @@ function frame(now) {
   craft.update(flight, time, !guided && inputs.has('boost') && inputs.has('throttle'));
   craft.group.position.sub(origin);
   updateCamera(dt);
+  city.afterCamera(now,dt,flight.position,camera,origin,height*renderer.getPixelRatio());
   composer.render();
 }
 
@@ -550,20 +562,30 @@ function boot() {
     scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2('#525b55', .00059);
     camera = new THREE.PerspectiveCamera(61, 1, .25, 7400);
-    const fill = new THREE.HemisphereLight('#b3ced1', '#544637', 1.48);
-    const rim = new THREE.DirectionalLight('#efc89f', 1.69);
+    const fill = new THREE.HemisphereLight('#b8d0d9', '#585046', 1.23);
+    const rim = new THREE.DirectionalLight('#edc7a3', 1.22);
     rim.position.set(-3, 5, -6);
-    const front = new THREE.DirectionalLight('#8bbebd', .74);
+    const front = new THREE.DirectionalLight('#8bbebd', .62);
     front.position.set(4, 2.4, 7);
     scene.add(fill, rim, front);
+    const hdr=renderer.extensions.has('EXT_color_buffer_float');
+    if (hdr) installSkyProbe(renderer,scene);
     city = createCity(scene);
     craft = createCraft(scene);
 
-    composer = new EffectComposer(renderer);
+    const target=new THREE.WebGLRenderTarget(1,1,{type:hdr?THREE.HalfFloatType:THREE.UnsignedByteType});
+    if (hdr) target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
+    composer = new EffectComposer(renderer,target);
     const render = new RenderPass(scene, camera);
     const bloom = new UnrealBloomPass(new THREE.Vector2(), .51, .52, .98);
     composer.addPass(render);
-    composer.addPass(bloom);
+    if (hdr) {
+      rayPass=new RayLightingPass(camera,()=>city.lights);
+      composer.addPass(rayPass);
+      lightingButton.hidden=false;
+      setRayLighting(!matchMedia('(pointer: coarse)').matches);
+      composer.addPass(bloom);
+    }
     composer.addPass(new OutputPass());
     addEventListener('resize', resize);
     resize();

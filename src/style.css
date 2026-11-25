@@ -356,3 +356,27 @@ kbd {
   background: currentColor;
   transform: rotate(45deg);
 }
+
+
+.lighting-button {
+  width: auto;
+  min-width: 73px;
+  padding: 0 9px;
+  font: 600 9px/1.1 var(--mono);
+  white-space: nowrap;
+  letter-spacing: .02em;
+}
+.lighting-button[aria-pressed="true"] {
+  border-color: #6dbaaac0;
+  color: #a5f1df;
+}
+@media (max-width: 625px) {
+  .topbar { grid-template-columns: auto 1fr auto; column-gap: 9px; }
+  .flight-state { justify-self: center; }
+  .lighting-button { min-width: 57px; padding: 0 5px; font-size: 8px; }
+}
+@media (max-width: 420px) {
+  .brand { gap: 5px; letter-spacing: .04em; }
+  .flight-state { font-size: 8px; padding: 5px; }
+  .top-actions { gap: 3px; }
+}

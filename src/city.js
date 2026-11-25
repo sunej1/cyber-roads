@@ -7,6 +7,10 @@ import { airCircuits, streetRuns, streets as streetGrid } from './traffic.js';
 import { addMovingTraffic } from './street-life.js';
 import { coreTile, districtForPosition, groundAt, riverAt, streetVertex, tileAt, tileSize } from './extent.js';
 import { generateTile, localTraffic } from './world.js';
+import { asphalt } from './surface-materials.js';
+import { detailHierarchy } from './detail-selection.js';
+import { streetDetails } from './streetscape.js';
+import { streetFixtures, streetLighting } from './street-lighting.js';
 
 const { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial }=THREE;
 const lightColors=['#ffc479','#62d8ed','#ff785c','#e4b154','#fff1a4','#add27e'];
@@ -111,7 +115,6 @@ function water(parent) {
 }
 
 const stone = new MeshStandardMaterial({ color: '#323a3b', roughness: .75 });
-const asphalt = new MeshStandardMaterial({ color: '#20282a', roughness: .43, metalness: .22 });
 const publicGreen = new MeshStandardMaterial({ color: '#415044', roughness: .9 });
 const paintedLines = new MeshBasicMaterial({ color: '#afa17c' });
 const warmLamp = neon('#ffcc87', 2.4);
@@ -134,7 +137,7 @@ const pavementGlow = new THREE.ShaderMaterial({
       vec2 p = vUv * 2.0 - 1.0;
       float light = pow(max(0.0, 1.0-dot(p,p)), 2.65);
       float ripple = .79 + .21*sin(vUv.y*165.0 + sin(vUv.x*37.0)*1.7);
-      gl_FragColor = vec4(glowColor, light*ripple*.145);
+      gl_FragColor = vec4(glowColor, light*ripple*.11);
     }`,
 });
 const pavingPlane = new THREE.PlaneGeometry().rotateX(-Math.PI / 2);
@@ -336,6 +339,7 @@ function ground(scene, buildings) {
   batch(scene, box, new MeshBasicMaterial({ color: '#276583' }), pools);
   batch(scene, box, new MeshStandardMaterial({ roughness: .62 }), awnings);
   batch(scene, new THREE.IcosahedronGeometry(1, 1), new MeshStandardMaterial({ roughness: 1, emissive: '#0a2824', emissiveIntensity: .65 }), leaves);
+  return streetFixtures(lamps);
 }
 
 function mountains(scene) {
@@ -613,6 +617,7 @@ function drawTile(tile, detail) {
   batch(group,box,treeBark,trunks);
   batch(group,leavesGeometry,treeCanopy,trees);
   let move=null;
+  let hierarchy=[], fixtures=[];
   if (detail) {
     batch(group,box,trim,curbs);
     batch(group,box,paintedLines,marks);
@@ -620,7 +625,8 @@ function drawTile(tile, detail) {
     batch(group,box,steel,rails);
     batch(group,box,bridgeGlass,glazing);
     batch(group,pavingPlane,pavementGlow,pools);
-    towers(group,tile.buildings,true);
+    hierarchy=detailHierarchy(towers(group,tile.buildings,true),tile.x,tile.z);
+    fixtures=streetFixtures(lights,tile.x,tile.z);
     const {circuits,roads}=localTraffic(tile);
     move=addMovingTraffic(group,circuits,roads,marketPaths,tile.seed);
   } else {
@@ -638,7 +644,7 @@ function drawTile(tile, detail) {
     batch(group,box,distantTowers,silhouettes);
     batch(group,octagon,paintedMetal,stacks);
   }
-  return {group, move};
+  return {group,move,hierarchy,fixtures};
 }
 
 function disposeTile(tile) {
@@ -711,13 +717,30 @@ export function createCity(scene) {
   const coreBuildings = generateBuildings();
   const streamer = streamTiles(scene);
   mountains(city);
-  ground(city, coreBuildings);
-  towers(city, coreBuildings);
+  const coreFixtures=ground(city,coreBuildings);
+  const coreDetail=detailHierarchy(towers(city,coreBuildings));
+  const details=streetDetails(scene);
+  const lighting=streetLighting(scene);
   const updateTraffic = addMovingTraffic(city, airCircuits(coreBuildings), streetRuns(coreBuildings), footpaths, 18725);
   let lastColliders, showCore;
   return {
     buildings: coreBuildings,
     nearbyLayouts: streamer.nearbyLayouts,
+    lights: lighting.lights,
+    afterCamera(now,dt,position,camera,origin,height) {
+      const nearCore=Math.max(Math.abs(position.x),Math.abs(position.z))<1620;
+      const hierarchies=nearCore?[coreDetail]:[];
+      const fixtureLists=nearCore?[coreFixtures]:[];
+      for (const tile of streamer.nearbyLayouts()) {
+        if (tile.near) {
+          hierarchies.push(tile.hierarchy);
+          fixtureLists.push(tile.fixtures);
+        }
+      }
+      camera.updateMatrixWorld();
+      details.update(now,camera,origin,height,hierarchies);
+      lighting.update(now,dt,camera,origin,fixtureLists.concat([details.fixtures()]));
+    },
     update(time, position, origin) {
       setScreenTime(time);
       ocean.material.uniforms.time.value = time;
