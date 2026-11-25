@@ -279,7 +279,7 @@ function drawLocalRadar(ctx, position, district) {
     }
     ctx.stroke();
   }
-  const track = flight.spine?.track ?? closestSpine(position.x,position.z);
+  const track = guided && flight.spine ? flight.spine.track : closestSpine(position.x, position.z);
   ctx.strokeStyle = district.color;
   ctx.lineWidth = 2.5;
   ctx.beginPath();
