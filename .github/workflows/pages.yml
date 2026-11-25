@@ -1,4 +1,4 @@
-name: Deploy Afterhour to Pages
+name: Deploy Cyber Roads to Pages
 
 on:
   push:

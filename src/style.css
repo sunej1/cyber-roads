@@ -23,7 +23,7 @@ button:disabled { cursor: default; opacity: .5; }
   width: 100%;
   isolation: isolate;
   overflow: hidden;
-  background: radial-gradient(ellipse at 60% 60%, #4c384f, #111625 76%);
+  background: radial-gradient(ellipse at 60% 60%, #343f42, #111823 76%);
 }
 #view, .vignette { position: absolute; inset: 0; height: 100%; width: 100%; }
 #view { display: block; touch-action: none; }
@@ -337,4 +337,22 @@ kbd {
   .top-actions { gap: 4px; }
   .icon-button { width: 31px; height: 32px; }
   .controls > span:nth-child(4) { display: none; }
+}
+
+.landmark {
+  margin-top: 7px;
+  color: #f5d092;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 600 10px/1.35 var(--mono);
+}
+.landmark::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
 }

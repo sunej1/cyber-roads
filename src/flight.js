@@ -5,27 +5,28 @@ export const districts = [
   { name: 'Harbor Approach', description: 'South breakwater', point: 0, color: '#65eddf' },
   { name: 'Lantern Mile', description: 'Downtown tower canyon', point: 2, color: '#ff73bd' },
   { name: 'Glass Gardens', description: 'Civic square and public park', point: 5, color: '#a2f4ba' },
-  { name: 'Crown Heights', description: 'North ridge overlook', point: 9, color: '#bc9bff' },
-  { name: 'Outer Harbor', description: 'Offshore skyline view', point: 13, color: '#ffbc86' },
+  { name: 'Crown Heights', description: 'Tower canyon and transit decks', point: 9, color: '#bc9bff' },
+  { name: 'Westbank', description: 'Canals and old warehouse lanes', point: 15, color: '#ffbc86' },
 ];
 
 const waypoints = [
-  [-154, 121, 1055], [-205, 107, 857], [-224, 98, 566], [-223, 99, 359],
-  [-194, 93, 200], [-115, 76, 113], [12, 66, 91], [141, 77, 44],
-  [218, 104, -130], [300, 137, -335], [426, 177, -565], [610, 223, -799],
-  [864, 228, -848], [1115, 198, -620], [1202, 155, -232],
-  [1153, 123, 256], [916, 116, 685], [556, 133, 1005], [212, 139, 1128],
+  [-154, 110, 1055], [-208, 86, 854], [-218, 63, 643], [-196, 55, 518],
+  [-223, 57, 361], [-204, 52, 222], [-120, 50, 112], [9, 51, 91],
+  [157, 53, 35], [215, 57, -148], [276, 63, -327], [225, 78, -550],
+  [56, 81, -677], [-137, 69, -690], [-322, 62, -525], [-493, 56, -367],
+  [-556, 57, -163], [-563, 58, 54], [-625, 59, 212], [-531, 51, 405],
+  [-435, 51, 586], [-433, 57, 780], [-347, 62, 923], [-274, 71, 1062],
 ].map(point => new Vector3(...point));
 
-export const route = new CatmullRomCurve3(waypoints, true, 'centripetal');
+export const route = new CatmullRomCurve3(waypoints);
 route.arcLengthDivisions = 1200;
 route.updateArcLengths();
 export const length = route.getLength();
-export const routeSamples = route.getSpacedPoints(440).slice(0, -1);
+export const routeSamples = route.getSpacedPoints(560);
 export const park = { x: 10, z: 105, w: 228, d: 174 };
 export const plaza = { x: -220, z: 355, w: 142, d: 135 };
-export const harborExit = .934;
-export const departure = makeDeparture(route, harborExit);
+export const harborExit = 1;
+export const departure = makeDeparture(route);
 const departureLength = departure.getLength();
 const departureSamples = departure.getSpacedPoints(94);
 
@@ -48,7 +49,7 @@ function isOnLand(x, z) {
 export function nearestRoute(position, through = 1) {
   let best = Infinity;
   let index = 0;
-  for (let i = 0; i < Math.min(routeSamples.length,1+Math.floor(through*routeSamples.length)); i++) {
+  for (let i = 0; i < Math.min(routeSamples.length, 1 + Math.floor(through * (routeSamples.length - 1))); i++) {
     const point = routeSamples[i];
     const distance = (point.x - position.x) ** 2 + (point.z - position.z) ** 2;
     if (distance < best) {
@@ -56,7 +57,7 @@ export function nearestRoute(position, through = 1) {
       index = i;
     }
   }
-  return index / routeSamples.length;
+  return index / (routeSamples.length - 1);
 }
 
 for (const district of districts) district.station = nearestRoute(waypoints[district.point]);
@@ -65,9 +66,14 @@ export function districtAt(station) {
 }
 
 export function intersectsBuilding(position, building, clearance = 3.5) {
-  return position.y < building.h + clearance
-    && Math.abs(position.x - building.x) < building.w / 2 + clearance
-    && Math.abs(position.z - building.z) < building.d / 2 + clearance;
+  if (position.y >= building.h + clearance || position.y <= (building.base ?? -Infinity) - clearance) return false;
+  const dx = position.x - building.x, dz = position.z - building.z;
+  if (!building.yaw) return Math.abs(dx) < building.w / 2 + clearance && Math.abs(dz) < building.d / 2 + clearance;
+  const max = (building.w + building.d) / 2 + clearance;
+  if (Math.abs(dx) >= max || Math.abs(dz) >= max) return false;
+  const sin = Math.sin(building.yaw), cos = Math.cos(building.yaw);
+  return Math.abs(dx * cos - dz * sin) < building.w / 2 + clearance
+    && Math.abs(dx * sin + dz * cos) < building.d / 2 + clearance;
 }
 
 export function randomFor(seed) {
@@ -199,19 +205,21 @@ export function generateBuildings() {
   };
 
   const landmarks = [
-    { x: -132, z: 803, w: 71, d: 56, h: 158, type: 7, sign: 'NOCTURNE', style: 2 },
-    { x: -339, z: 818, w: 72, d: 58, h: 121, type: 6, sign: 'PORT / 01', style: 3 },
+    { x: -132, z: 803, w: 71, d: 56, h: 158, type: 14, sign: 'NOCTURNE', style: 2 },
+    { x: -339, z: 818, w: 72, d: 58, h: 121, type: 11, sign: 'PORT / 01', style: 3 },
     { x: -366, z: 628, w: 85, d: 78, h: 164, type: 5, sign: 'KAIROS', style: 4 },
-    { x: -84, z: 597, w: 79, d: 84, h: 188, type: 6, sign: 'NOVA', style: 1 },
+    { x: -84, z: 597, w: 79, d: 84, h: 188, type: 9, sign: 'NOVA', style: 1 },
     { x: -358, z: 393, w: 76, d: 82, h: 183, type: 7, sign: 'LANTERN', style: 4 },
     { x: -99, z: 397, w: 72, d: 80, h: 232, type: 5, sign: 'SABLE', style: 0 },
     { x: 77, z: 469, w: 87, d: 79, h: 211, type: 2, sign: 'OYAMA', style: 1 },
-    { x: 263, z: 271, w: 91, d: 68, h: 283, type: 4, sign: 'MERIDIAN', style: 1 },
+    { x: 263, z: 271, w: 91, d: 68, h: 283, type: 8, sign: 'MERIDIAN', style: 1 },
     { x: 345, z: 176, w: 60, d: 53, h: 214, type: 2, style: 2 },
     { x: -386, z: 74, w: 95, d: 81, h: 213, type: 4, sign: 'ORBIT', style: 1 },
     { x: 32, z: -179, w: 74, d: 79, h: 173, type: 7, sign: 'VERDANT', style: 5 },
     { x: 409, z: -302, w: 78, d: 66, h: 219, type: 5, sign: 'CROWN', style: 0 },
     { x: 568, z: -432, w: 80, d: 73, h: 204, type: 3, style: 1 },
+    { x: -651, z: 388, w: 65, d: 63, h: 85, type: 10, sign: 'TIDELINE', style: 3 },
+    { x: -349, z: 909, w: 56, d: 55, h: 59, type: 12, sign: 'VERDANT', style: 5 },
     { x: 689, z: 516, w: 79, d: 81, h: 127, type: 6, sign: 'TIDELINE', style: 5 },
   ];
   landmarks.forEach(add);
@@ -225,8 +233,9 @@ export function generateBuildings() {
       if (z > 770 && (x < -580 || x > 430)) continue;
       const w = 55 + random() * 47;
       const d = 49 + random() * 51;
-      const h = 27 + 159 * (1 - Math.min(0.94, density)) + random() ** 1.25 * 103;
-      const type = Math.floor(random() * 8);
+      const westbank=x<-505 && z>220;
+      const h=westbank? 22+random()*46 : 27+159*(1-Math.min(.94,density))+random()**1.25*103;
+      const type=westbank ? [10,13,15][Math.floor(random()*3)] : [0,1,2,3,4,5,6,7,8,9,14][Math.floor(random()*11)];
       const style = Math.floor(random() * 6);
       if (landmarks.some(tower => Math.abs(tower.x - x) < (w + tower.w) / 2 + 19
         && Math.abs(tower.z - z) < (d + tower.d) / 2 + 19)) continue;

@@ -1,8 +1,10 @@
-# Afterhour
+# Cyber Roads
 
-Fly a hovercar through Meridian City in your browser. [Play Afterhour](https://sunej1.github.io/cyber-roads/).
+Fly a hovercar through Meridian City in your browser. [Play Cyber Roads](https://sunej1.github.io/cyber-roads/).
 
-The guided flight enters from the south harbor, passes between downtown towers, crosses a civic square and park, climbs to Crown Heights, and sweeps offshore. It then leaves Meridian City on a causeway into a city that keeps generating new districts. Take the controls any time to explore in any direction. Hover taxis, air shuttles, street cars, and pedestrians follow their own routes.
+**Start guided flight** takes you between Meridian’s towers and across its waterfront before following the south causeway. **Start district tour** picks up at the canal. The route passes the Sable Locks, Keystone Exchange, Lift 24, Kiln Nine, and Juniper Reservoir as it winds through downtown blocks, a freight belt, and wooded outskirts. Take the controls any time to explore in any direction.
+
+The local radar shows the streets, rail lines, bridges, and landmarks loaded around the vehicle. Road and waterway layouts cross tile boundaries, and each district has its own building types, street density, and traffic.
 
 | Control | Action |
 | --- | --- |

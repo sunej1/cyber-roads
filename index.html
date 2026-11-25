@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#121322">
     <meta name="description" content="Fly a hovercar through the neon streets and open waters of Meridian City.">
-    <title>Afterhour — Meridian City</title>
+    <title>Cyber Roads — Meridian City</title>
   </head>
   <body>
-    <main id="game" aria-label="Afterhour flying game" data-mode="ready">
+    <main id="game" aria-label="Cyber Roads flying game" data-mode="ready">
       <canvas id="view" aria-label="3D view of Meridian City"></canvas>
       <div class="vignette" aria-hidden="true"></div>
 
       <header class="topbar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>AFTERHOUR</span></div>
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>CYBER ROADS</span></div>
         <div class="flight-state"><span class="status-dot"></span><span id="state">System ready</span></div>
         <div class="top-actions">
           <button id="camera" class="icon-button" type="button" aria-label="Switch camera" title="Switch camera (C)" hidden><span class="camera-icon"></span></button>
@@ -24,10 +24,11 @@
       <section id="menu" class="launch frame" aria-labelledby="launch-title">
         <div class="launch-inner">
           <p class="location"><span aria-hidden="true"></span> Meridian City <span class="location-divider">/</span> 22:47</p>
-          <h1 id="launch-title">AFTER<span>HOUR</span></h1>
-          <p id="menu-copy" class="intro">Fly through Meridian City, then follow the air lanes into new districts.</p>
+          <h1 id="launch-title">CYBER<span> ROADS</span></h1>
+          <p id="menu-copy" class="intro">Fly low through Meridian or join the district tour at the canal.</p>
           <div class="launch-actions">
             <button id="tour" class="action primary" type="button"><span>Start guided flight</span><span aria-hidden="true">↗</span></button>
+            <button id="district-tour" class="action secondary" type="button"><span>Start district tour</span><span aria-hidden="true">↗</span></button>
             <button id="manual" class="action secondary" type="button"><span>Fly manually</span><span aria-hidden="true">↗</span></button>
             <button id="restart" class="text-button" type="button" hidden>Restart at Harbor Approach</button>
           </div>
@@ -40,6 +41,7 @@
         <canvas id="map" width="472" height="254" aria-label="Map of the Meridian City outbound route" role="img"></canvas>
         <ol id="districts" class="districts"></ol>
         <div class="route-footer"><span class="status-dot"></span><span id="route-progress">Harbor Approach</span></div>
+        <div class="landmark" id="landmark-name" hidden></div>
       </aside>
 
       <section class="hud" aria-label="Flight instruments" hidden>

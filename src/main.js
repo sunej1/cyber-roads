@@ -5,9 +5,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createCity } from './city.js';
 import { createCraft } from './craft.js';
-import { advanceFlight, departure, districtAt, districts, harborExit, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route, routeSamples, shore } from './flight.js';
-import { closestSpine, coreTile, districtFor, spinePoint, tileAt, tileSize } from './extent.js';
-import { blockSize } from './world.js';
+import { advanceFlight, departure, districtAt, districts, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route, routeSamples, shore } from './flight.js';
+import { closestSpine, coreEdge, coreTile, districtForPosition, groundAt, spinePoint, tileAt, tileSize } from './extent.js';
+import { streets as cityStreets } from './traffic.js';
 import './style.css';
 
 const element = id => document.getElementById(id);
@@ -18,6 +18,8 @@ const hud = document.querySelector('.hud');
 const touch = element('touch');
 const tourButton = element('tour');
 const manualButton = element('manual');
+const districtButton = element('district-tour');
+const landmarkText = element('landmark-name');
 const cameraButton = element('camera');
 const pauseButton = element('pause');
 const restartButton = element('restart');
@@ -67,18 +69,19 @@ function drawMapBase() {
   ctx.stroke();
   ctx.save();
   ctx.clip();
-  ctx.strokeStyle = '#415367';
-  for (let x = -884; x <= 750; x += 136) {
-    ctx.beginPath(); ctx.moveTo(mapX(x), 12); ctx.lineTo(mapX(x), 215); ctx.stroke();
-  }
-  for (let z = -812; z <= 880; z += 125) {
-    ctx.beginPath(); ctx.moveTo(130, mapY(z)); ctx.lineTo(320, mapY(z)); ctx.stroke();
+  for (const { horizontal, center, start, end, width } of cityStreets) {
+    ctx.strokeStyle = width > 14 ? '#798887aa' : '#546771ae';
+    ctx.lineWidth = width > 14 ? 1.12 : .66;
+    ctx.beginPath();
+    ctx.moveTo(mapX(horizontal?start:center), mapY(horizontal?center:start));
+    ctx.lineTo(mapX(horizontal?end:center), mapY(horizontal?center:end));
+    ctx.stroke();
   }
   ctx.fillStyle = '#46736f';
   for (const { x, z, w, d } of [park, plaza]) ctx.fillRect(mapX(x - w / 2), mapY(z - d / 2), w * mapScale, d * mapScale);
   ctx.restore();
   ctx.beginPath();
-  const openingRoute = routeSamples.slice(0,Math.floor(harborExit*routeSamples.length)+1).concat(departure.getSpacedPoints(35));
+  const openingRoute = routeSamples.concat(departure.getSpacedPoints(35));
   openingRoute.forEach(({ x, z }, i) => i === 0 ? ctx.moveTo(mapX(x), mapY(z)) : ctx.lineTo(mapX(x), mapY(z)));
   ctx.lineWidth = 4.8;
   ctx.strokeStyle = '#122429';
@@ -133,6 +136,8 @@ let width = 1, height = 1;
 let last = 0, accumulator = 0, nextHud = 0;
 let displayedDistrict = null;
 let displayedWarning = false;
+let viewedLandmark = null;
+let landmarkLook = 0;
 
 function clearInput() {
   pressed.clear();
@@ -150,11 +155,12 @@ function setStatus(value) {
   hud.hidden = !flying;
   pauseButton.hidden = cameraButton.hidden = !flying;
   restartButton.hidden = !paused;
+  districtButton.hidden = paused;
   touch.hidden = !flying || guided;
   tourButton.firstElementChild.textContent = paused && guided ? 'Resume guided flight' : 'Start guided flight';
   manualButton.firstElementChild.textContent = paused && !guided ? 'Resume manual flight' : 'Fly manually';
-  element('launch-title').innerHTML = paused ? 'FLIGHT<span> PAUSED</span>' : 'AFTER<span>HOUR</span>';
-  element('menu-copy').textContent = paused ? 'Resume from your current position or restart at the harbor.' : 'Fly through Meridian City, then follow the air lanes into new districts.';
+  element('launch-title').innerHTML = paused ? 'FLIGHT<span> PAUSED</span>' : 'CYBER<span> ROADS</span>';
+  element('menu-copy').textContent = paused ? 'Resume from your current position or restart at the harbor.' : 'Fly low through Meridian or join the district tour at the canal.';
   element('state').textContent = paused ? 'Flight paused' : flying ? (guided ? 'Guided flight' : 'Manual flight') : 'System ready';
   modeButton.lastChild.textContent = guided ? ' Take control' : ' Join guided flight';
   recoverButton.hidden = guided;
@@ -198,6 +204,14 @@ function changeCamera() {
 
 tourButton.addEventListener('click', () => startFlight(true));
 manualButton.addEventListener('click', () => startFlight(false));
+districtButton.addEventListener('click', () => {
+  if (!renderer) return;
+  flight = nearestGuideFlight(spinePoint(0,coreEdge+145));
+  guided = true;
+  noseCamera = false;
+  snapCamera = true;
+  startFlight(true);
+});
 restartButton.addEventListener('click', () => startFlight(guided, true));
 cameraButton.addEventListener('click', changeCamera);
 pauseButton.addEventListener('click', () => setStatus('paused'));
@@ -256,42 +270,127 @@ canvas.addEventListener('lostpointercapture', () => { lookTouch = undefined; });
 const radarPoint = new THREE.Vector3();
 const causeway = { name: 'South Causeway', description: 'Outbound air lanes' };
 
-function drawLocalRadar(ctx, position, district) {
-  const scale = .27;
-  const xAt = x => map.width / 2 + (x-position.x)*scale;
-  const zAt = z => map.height / 2 + (z-position.z)*scale;
-  ctx.fillStyle = '#192729';
-  ctx.fillRect(0,0,map.width,map.height);
-  const col = tileAt(position.x), row = tileAt(position.z);
-  for (let r = row-2; r <= row+2; r++) for (let c = col-2; c <= col+2; c++) {
-    if (coreTile(c,r)) continue;
-    const x = c*tileSize-tileSize/2, z = r*tileSize-tileSize/2;
-    const style = districtFor(c,r).style;
-    ctx.fillStyle = style === 5 ? '#293f43' : style === 3 ? '#37362a' : '#30413e';
-    ctx.fillRect(xAt(x)+1,zAt(z)+1,tileSize*scale-2,tileSize*scale-2);
-    ctx.strokeStyle = '#8c9f8a55';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const at = i*blockSize;
-      ctx.moveTo(xAt(x+at),zAt(z)); ctx.lineTo(xAt(x+at),zAt(z+tileSize));
-      ctx.moveTo(xAt(x),zAt(z+at)); ctx.lineTo(xAt(x+tileSize),zAt(z+at));
+const cartography = {
+  downtown:'#3d4546', canal:'#354747', industry:'#484439', outskirts:'#354836',
+};
+
+function nearbyLandmark(position) {
+  let next = null;
+  let closest = Infinity;
+  const direction=flight.spine?.direction ?? (Math.cos(flight.yaw)>0?-1:1);
+  for (const { data } of city.nearbyLayouts()) for (const landmark of data.landmarks) {
+    const x=landmark.x+data.x,z=landmark.z+data.z;
+    const delta=(z-position.z)*direction;
+    const side=Math.abs(x-position.x);
+    const score=Math.hypot(delta,side);
+    if (delta>=-28 && delta<420 && side<227 && score<closest) {
+      closest=score;
+      next={ x,z,name:landmark.landmark,code:landmark.sign };
     }
+  }
+  return next;
+}
+
+function drawLocalRadar(ctx, position, district) {
+  const scale=.265;
+  const xAt=x=>map.width/2+(x-position.x)*scale;
+  const zAt=z=>map.height/2+(z-position.z)*scale;
+  ctx.fillStyle='#142327';
+  ctx.fillRect(0,0,map.width,map.height);
+  const tiles=[];
+  for (const {data} of city.nearbyLayouts()) {
+    if (Math.abs(data.x-position.x)>map.width/2/scale+340 || Math.abs(data.z-position.z)>map.height/2/scale+340) continue;
+    tiles.push(data);
+  }
+
+  const increment=tileSize/20;
+  for (const tile of tiles) {
+    const startX=tile.x-tileSize/2,startZ=tile.z-tileSize/2;
+    ctx.fillStyle=cartography[tile.district.id];
+    for (let row=0;row<20;row++) {
+      const z=startZ+row*increment;
+      let span=null;
+      for (let column=0;column<=20;column++) {
+        const x=startX+column*increment;
+        const land=column<20 && groundAt(x+increment*.5,z+increment*.5)>-3;
+        if (land && span===null) span=x;
+        if (!land && span!==null) {
+          ctx.fillRect(xAt(span),zAt(z),(x-span)*scale+.32,increment*scale+.29);
+          span=null;
+        }
+      }
+    }
+    for (const block of tile.blocks) {
+      if (!['grove','plaza','yard','tanks'].includes(block.use)) continue;
+      ctx.fillStyle=block.use==='grove'?'#577256':block.use==='plaza'?'#728171':'#514b3b';
+      ctx.beginPath();
+      block.corners.forEach(([x,z],index)=>{
+        const px=xAt(tile.x+x*.83+block.x*.17),pz=zAt(tile.z+z*.83+block.z*.17);
+        if (index===0) ctx.moveTo(px,pz);
+        else ctx.lineTo(px,pz);
+      });
+      ctx.closePath();
+      ctx.fill();
+    }
+    for (const building of tile.buildings) {
+      const w=building.w*scale,d=building.d*scale;
+      ctx.save();
+      ctx.translate(xAt(building.x+tile.x),zAt(building.z+tile.z));
+      ctx.rotate(-(building.yaw ?? 0));
+      ctx.fillStyle=building.landmark?'#b6a276':building.h>83?'#1e282b':'#283234';
+      ctx.fillRect(-w/2,-d/2,w,d);
+      ctx.restore();
+    }
+  }
+
+  ctx.lineCap='round';
+  for (const tile of tiles) for (const road of tile.roads) {
+    ctx.strokeStyle=road.kind==='rail'?'#db9b67':road.bridge?'#bac5ba':road.kind==='avenue'?'#a2a594':'#777e74';
+    ctx.lineWidth=road.kind==='avenue'?2.32:road.kind==='street'?.85:1.43;
+    ctx.setLineDash(road.kind==='rail'?[4,3]:[]);
+    ctx.beginPath();
+    ctx.moveTo(xAt(tile.x+road.x),zAt(tile.z+road.z));
+    ctx.lineTo(xAt(tile.x+road.toX),zAt(tile.z+road.toZ));
     ctx.stroke();
   }
-  const track = guided && flight.spine ? flight.spine.track : closestSpine(position.x, position.z);
-  ctx.strokeStyle = district.color;
-  ctx.lineWidth = 2.5;
+  ctx.lineCap='butt';
+  ctx.setLineDash([]);
+  const track=guided && flight.spine?flight.spine.track:closestSpine(position.x,position.z);
   ctx.beginPath();
-  for (let i=-520; i<=520; i+=26) {
+  for (let i=-540;i<=540;i+=18) {
     spinePoint(track,position.z+i,radarPoint);
-    if (i===-520) ctx.moveTo(xAt(radarPoint.x),zAt(radarPoint.z));
+    if (i===-540) ctx.moveTo(xAt(radarPoint.x),zAt(radarPoint.z));
     else ctx.lineTo(xAt(radarPoint.x),zAt(radarPoint.z));
   }
+  ctx.strokeStyle='#122022';
+  ctx.lineWidth=5;
   ctx.stroke();
-  ctx.fillStyle = '#c3cdbf';
-  ctx.font = '15px monospace';
+  ctx.strokeStyle=district.color;
+  ctx.lineWidth=2.3;
+  ctx.stroke();
+
+  for (const tile of tiles) for (const landmark of tile.landmarks) {
+    const x=xAt(tile.x+landmark.x),z=zAt(tile.z+landmark.z);
+    ctx.fillStyle='#f6cd80';
+    ctx.save();
+    ctx.translate(x,z);
+    ctx.rotate(Math.PI/4);
+    ctx.fillRect(-4,-4,8,8);
+    ctx.restore();
+    if (viewedLandmark?.code===landmark.sign) {
+      ctx.font='bold 13px monospace';
+      ctx.lineWidth=3;
+      ctx.strokeStyle='#142327';
+      ctx.strokeText(landmark.sign,x+10,z+4);
+      ctx.fillText(landmark.sign,x+10,z+4);
+    }
+  }
+  ctx.fillStyle='#c3cdbf';
+  ctx.font='15px monospace';
   ctx.fillText('N',map.width-25,23);
+  ctx.font='11px monospace';
+  ctx.fillText('200 m',16,map.height-20);
+  ctx.fillRect(16,map.height-15,200*scale,1);
 }
 
 function updateMap(localDistrict) {
@@ -314,7 +413,10 @@ function updateMap(localDistrict) {
 function updateHud() {
   const { position } = flight;
   const col = tileAt(position.x), row = tileAt(position.z);
-  const localDistrict = coreTile(col,row) ? null : districtFor(col,row);
+  const localDistrict = coreTile(col,row) ? null : districtForPosition(position.x,position.z);
+  viewedLandmark = localDistrict ? nearbyLandmark(position) : null;
+  landmarkText.hidden = !viewedLandmark;
+  if (viewedLandmark && landmarkText.textContent!==viewedLandmark.name) landmarkText.textContent=viewedLandmark.name;
   let district = localDistrict;
   if (!district) {
     if (guided) district = flight.transfer === null ? districtAt(flight.station) : causeway;
@@ -369,12 +471,11 @@ function updateCamera(dt) {
   const heading = flight.yaw;
   const eyeHeight = noseCamera ? 2 : 8.1 + flight.speed * .036;
   const distance = noseCamera ? -6.6 : (opening ? 26 : 24) + flight.speed * .11;
-  const centerHeading = Math.atan2(-flight.position.x, flight.position.z);
-  const centerAngle = THREE.MathUtils.euclideanModulo(centerHeading - heading, Math.PI * 2);
-  const offshore = guided && !noseCamera && flight.transfer === null && !flight.spine
-    ? THREE.MathUtils.smoothstep(flight.station, .326, .445) * (1 - THREE.MathUtils.smoothstep(flight.station, .875, harborExit))
-    : 0;
-  const panorama = opening ? .62 : offshore * centerAngle;
+  const panorama = opening ? .54 : 0;
+  const landmarkBearing=viewedLandmark && guided && !noseCamera ? Math.atan2(
+    viewedLandmark.x-flight.position.x, flight.position.z-viewedLandmark.z) : heading;
+  const turn=Math.atan2(Math.sin(landmarkBearing-heading),Math.cos(landmarkBearing-heading));
+  landmarkLook=THREE.MathUtils.damp(landmarkLook,THREE.MathUtils.clamp(turn,-1.05,1.05)*.18,3.7,dt);
   const orbit = heading + lookYaw + panorama;
   const orbitHeight = Math.max(1, eyeHeight + lookPitch * 28);
   desiredCamera.set(
@@ -383,7 +484,7 @@ function updateCamera(dt) {
     flight.position.z - origin.z + Math.cos(orbit) * distance,
   );
   const ahead = noseCamera ? 53 : (opening ? 24 : 25) + flight.speed * .22;
-  const lookDirection = noseCamera ? heading + lookYaw : heading + lookYaw * .22 + panorama;
+  const lookDirection = noseCamera ? heading + lookYaw : heading + lookYaw * .22 + panorama + landmarkLook;
   desiredTarget.set(
     flight.position.x - origin.x + Math.sin(lookDirection) * ahead,
     flight.position.y + (noseCamera ? 2 + lookPitch * 28 : -2 + lookPitch * 6),
@@ -460,7 +561,7 @@ function boot() {
 
     composer = new EffectComposer(renderer);
     const render = new RenderPass(scene, camera);
-    const bloom = new UnrealBloomPass(new THREE.Vector2(), .56, .52, .84);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(), .51, .52, .98);
     composer.addPass(render);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
@@ -475,7 +576,7 @@ function boot() {
     const notice = element('unsupported');
     notice.textContent = 'The 3D view requires WebGL 2. Try a browser with hardware acceleration enabled.';
     notice.hidden = false;
-    tourButton.disabled = manualButton.disabled = true;
+    tourButton.disabled = manualButton.disabled = districtButton.disabled = true;
     element('state').textContent = '3D view unavailable';
   }
 }
