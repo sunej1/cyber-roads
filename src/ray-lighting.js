@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { Reflector } from 'three/addons/objects/Reflector.js';
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
+import { streetFog } from './weather.js';
 
 export const wetPatches = /* glsl */ `
   float wetPatches(vec2 at) {
@@ -58,6 +60,11 @@ const traceFragment = /* glsl */ `
   uniform sampler2D sceneColor;
   uniform vec3 viewUp;
   uniform vec4 lamps[6];
+  uniform sampler2D roadMirror;
+  uniform sampler2D waterMirror;
+  uniform mat4 roadProjection;
+  uniform mat4 waterProjection;
+  uniform float time;
   ${depthMath}
 
   float depthGap(vec3 ray, vec2 uv) {
@@ -73,12 +80,11 @@ const traceFragment = /* glsl */ `
     return normalize(cross(abs(right.z)<abs(left.z)?right:left,abs(top.z)<abs(bottom.z)?top:bottom));
   }
 
-  vec3 reflectedColor(vec3 surface, vec3 normal, float wetness) {
-    vec3 ray=reflect(normalize(surface),normal);
-    vec3 start=surface+normal*.16;
+  vec4 screenReflection(vec3 surface) {
+    vec3 ray=reflect(normalize(surface),viewUp);
+    vec3 start=surface+viewUp*.16;
     float lastDistance=.8;
     float lastGap=-1.0;
-    // shortcut: Screen-space rays lose geometry at the frame edge or behind the first visible surface.
     for (int i=0;i<24;i++) {
       float t=float(i+1)/24.0;
       float distance=1.05+t*t*145.0;
@@ -101,18 +107,40 @@ const traceFragment = /* glsl */ `
         if (residual>.045 && residual<.65+hi*.013 && dot(final-surface,viewUp)>.75) {
           float edge=min(min(hit.x,hit.y),min(1.0-hit.x,1.0-hit.y));
           float strength=smoothstep(.014,.12,edge)*(1.0-smoothstep(48.0,143.0,hi));
-          float fresnel=pow(1.0-max(0.0,dot(normal,-normalize(surface))),1.5);
-          vec2 blur=pixelSize*(1.2+hi*.038);
-          vec3 color=texture2D(sceneColor,hit).rgb*.64;
-          color+=texture2D(sceneColor,hit+vec2(blur.x,blur.y)).rgb*.18;
-          color+=texture2D(sceneColor,hit-vec2(blur.x,blur.y)).rgb*.18;
-          return min(color,vec3(2.8))*strength*(.17+.36*fresnel)*wetness;
+          return vec4(texture2D(sceneColor,hit).rgb,strength*.58);
         }
       }
       lastGap=gap;
       lastDistance=distance;
     }
-    return vec3(0.0);
+    return vec4(0.0);
+  }
+
+  vec3 reflectedColor(vec3 world, vec3 surface, float wetness) {
+    bool water=world.y< -2.5;
+    world.y=water ? -2.965 : .46;
+    vec4 mirror=water ? waterProjection*vec4(world,1.0) : roadProjection*vec4(world,1.0);
+    vec2 uv=mirror.xy/mirror.w*.5+.5;
+    vec2 edge=min(uv,1.0-uv);
+    float confidence=mirror.w>0.0 ? smoothstep(.005,.083,min(edge.x,edge.y)) : 0.0;
+    vec3 bounce=vec3(0.0);
+    if (confidence>0.0) {
+      vec2 at=world.xz*(6.28318530718/640.0);
+      float ripple=sin(at.x*147.0+at.y*184.0+time*4.1)*cos(at.y*125.0-at.x*82.0-time*2.2);
+      uv+=vec2(ripple,cos(ripple*3.2))*(water?.008:.0031);
+      vec2 spread=vec2(.0028,.0037)*(water?1.45:mix(1.62,.81,wetness));
+      if (water) {
+        bounce=texture2D(waterMirror,uv).rgb*.50;
+        bounce+=(texture2D(waterMirror,uv+spread).rgb+texture2D(waterMirror,uv-spread).rgb)*.25;
+      } else {
+        bounce=texture2D(roadMirror,uv).rgb*.54;
+        bounce+=(texture2D(roadMirror,uv+spread).rgb+texture2D(roadMirror,uv-spread).rgb)*.23;
+      }
+    }
+    vec4 detail=surface.z> -190.0 ? screenReflection(surface) : vec4(0.0);
+    float fresnel=pow(1.0-max(0.0,dot(viewUp,-normalize(surface))),1.45);
+    float strength=(.14+.38*fresnel)*wetness*(1.0-smoothstep(305.0,455.0,-surface.z));
+    return min(mix(bounce*confidence,detail.rgb,detail.a),vec3(4.4))*strength;
   }
 
   float nearOcclusion(vec3 p,vec3 normal) {
@@ -160,7 +188,7 @@ const traceFragment = /* glsl */ `
   void main() {
     float depth=texture2D(sceneDepth,vUv).r;
     vec3 p=unproject(vUv,depth);
-    if (depth>.999995 || p.z< -265.0) {
+    if (depth>.999995 || p.z< -455.0) {
       gl_FragColor=vec4(0.0);
       return;
     }
@@ -168,9 +196,9 @@ const traceFragment = /* glsl */ `
     vec3 world=(viewToWorld*vec4(p,1.0)).xyz;
     float wet=wetSurface(world)*smoothstep(.87,.99,dot(normal,viewUp));
     vec3 reflections=vec3(0.0);
-    if (wet>.08) reflections=reflectedColor(p,viewUp,wet);
-    float contact=nearOcclusion(p,normal);
-    if (world.y<24.0) contact=max(contact,localShadow(p,normal));
+    if (wet>.08) reflections=reflectedColor(world,p,wet);
+    float contact=p.z> -265.0 ? nearOcclusion(p,normal) : 0.0;
+    if (world.y<24.0 && p.z> -165.0) contact=max(contact,localShadow(p,normal));
     gl_FragColor=vec4(reflections,contact);
   }
 `;
@@ -179,18 +207,21 @@ const compositeFragment = /* glsl */ `
   varying vec2 vUv;
   uniform sampler2D sceneColor;
   uniform sampler2D traced;
+  uniform bool raysActive;
   ${depthMath}
+  ${streetFog}
   void main() {
     vec4 beauty=texture2D(sceneColor,vUv);
     float depth=texture2D(sceneDepth,vUv).r;
-    vec4 rays=texture2D(traced,vUv);
-    if (depth>.999995 || viewZ(depth)<-267.0) {
-      gl_FragColor=beauty;
-      return;
+    vec3 view=unproject(vUv,depth);
+    vec3 world=(viewToWorld*vec4(view,1.0)).xyz;
+    vec3 color=beauty.rgb;
+    if (raysActive && depth<.999995 && view.z> -455.0) {
+      vec4 rays=texture2D(traced,vUv);
+      float validReflection=smoothstep(.03,.23,wetSurface(world));
+      color=color*(1.0-rays.a)+rays.rgb*validReflection;
     }
-    vec3 world=(viewToWorld*vec4(unproject(vUv,depth),1.0)).xyz;
-    float validReflection=smoothstep(.03,.23,wetSurface(world));
-    gl_FragColor=vec4(beauty.rgb*(1.0-rays.a)+rays.rgb*validReflection,beauty.a);
+    gl_FragColor=vec4(fogStreet(color,view,world),beauty.a);
   }
 `;
 
@@ -202,11 +233,25 @@ function material(fragment, uniforms) {
 }
 
 export class RayLightingPass extends Pass {
-  constructor(camera, fixtures) {
+  constructor(scene, camera, fixtures, hdr, origin) {
     super();
+    this.scene = scene;
     this.camera = camera;
     this.fixtures = fixtures;
-    this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+    this.origin = origin;
+    this.lastOrigin = new THREE.Vector3();
+    this.raysEnabled = false;
+    this.mirrorIndex = 0;
+    this.mirrorsStale = true;
+    this.capture = new THREE.PerspectiveCamera();
+    this.target = hdr ? new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false }) : null;
+    this.mirrors = hdr ? [.46, -2.965].map(height => {
+      const reflector = new Reflector(new THREE.PlaneGeometry(1, 1), { textureWidth: 1, textureHeight: 1, multisample: 0 });
+      reflector.rotation.x = -Math.PI / 2;
+      reflector.position.y = height;
+      reflector.updateMatrixWorld();
+      return { reflector, target: reflector.getRenderTarget(), projection: new THREE.Matrix4() };
+    }) : [];
     this.inputs = {
       sceneColor: { value: null },
       sceneDepth: { value: null },
@@ -216,45 +261,93 @@ export class RayLightingPass extends Pass {
       clipRange: { value: new THREE.Vector2(camera.near, camera.far) },
       pixelSize: { value: new THREE.Vector2(1, 1) },
     };
+    this.clock = { value: 0 };
     this.viewUp = new THREE.Vector3();
     this.lamps = Array.from({ length: 6 }, () => new THREE.Vector4());
+    this.tints = Array.from({ length: 6 }, () => new THREE.Color(0));
     this.position = new THREE.Vector3();
-    this.trace = material(traceFragment, {
-      ...this.inputs, viewUp: { value: this.viewUp }, lamps: { value: this.lamps },
+    const lighting = { ...this.inputs, time: this.clock, lamps: { value: this.lamps } };
+    this.trace = hdr ? material(traceFragment, {
+      ...lighting, viewUp: { value: this.viewUp },
+      roadMirror: { value: this.mirrors[0].target.texture }, waterMirror: { value: this.mirrors[1].target.texture },
+      roadProjection: { value: this.mirrors[0].projection }, waterProjection: { value: this.mirrors[1].projection },
+    }) : null;
+    this.composite = material(compositeFragment, {
+      ...lighting, traced: { value: this.target?.texture ?? null }, raysActive: { value: false }, lampTint: { value: this.tints },
     });
-    this.composite = material(compositeFragment, { ...this.inputs, traced: { value: this.target.texture } });
-    this.quad = new FullScreenQuad(this.trace);
+    this.quad = new FullScreenQuad(this.composite);
   }
 
   setSize(width, height) {
     this.inputs.pixelSize.value.set(1 / width, 1 / height);
-    this.target.setSize(Math.max(1, Math.round(width * .50)), Math.max(1, Math.round(height * .50)));
+    this.target?.setSize(Math.max(1, Math.round(width * .5)), Math.max(1, Math.round(height * .5)));
+    const scale = Math.min(.43, 640 / width);
+    for (const mirror of this.mirrors) {
+      mirror.target.setSize(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+    }
+    this.mirrorsStale = true;
+  }
+
+  renderMirrors(renderer) {
+    this.capture.copy(this.camera, false);
+    this.capture.layers.disable(1);
+    this.capture.zoom /= 1.22;
+    this.capture.far = 1440;
+    this.capture.updateProjectionMatrix();
+    this.capture.updateMatrixWorld();
+    if (this.mirrorsStale || !this.lastOrigin.equals(this.origin)) {
+      for (const mirror of this.mirrors) this.renderMirror(renderer, mirror);
+      this.lastOrigin.copy(this.origin);
+      this.mirrorsStale = false;
+    } else {
+      // The last capture is reprojected while the other surface is refreshed.
+      this.renderMirror(renderer, this.mirrors[this.mirrorIndex]);
+      this.mirrorIndex = 1 - this.mirrorIndex;
+    }
+  }
+
+  renderMirror(renderer, { reflector, projection }) {
+    reflector.onBeforeRender(renderer, this.scene, this.capture);
+    const reflected = reflector.getReflectionCamera(this.capture);
+    projection.multiplyMatrices(reflected.projectionMatrix, reflected.matrixWorldInverse);
   }
 
   render(renderer, writeBuffer, readBuffer) {
     const camera = this.camera;
     this.inputs.sceneColor.value = readBuffer.texture;
     this.inputs.sceneDepth.value = readBuffer.depthTexture;
-    this.viewUp.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
     const lights = this.fixtures();
     for (let i = 0; i < this.lamps.length; i++) {
       const light = lights[i];
       if (light && light.intensity > .2) {
         this.position.copy(light.position).applyMatrix4(camera.matrixWorldInverse);
         this.lamps[i].set(this.position.x, this.position.y, this.position.z, light.distance);
-      } else this.lamps[i].set(0, 0, 0, 0);
+        this.tints[i].copy(light.color).multiplyScalar(Math.min(.24, light.intensity * .0017));
+      } else this.lamps[i].w = 0;
     }
-    this.quad.material = this.trace;
-    renderer.setRenderTarget(this.target);
-    this.quad.render(renderer);
+    const active = this.raysEnabled && this.trace !== null;
+    this.composite.uniforms.raysActive.value = active;
+    if (active) {
+      this.renderMirrors(renderer);
+      this.viewUp.set(0, 1, 0).transformDirection(camera.matrixWorldInverse);
+      this.quad.material = this.trace;
+      renderer.setRenderTarget(this.target);
+      this.quad.render(renderer);
+    } else {
+      this.mirrorsStale = true;
+    }
     this.quad.material = this.composite;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
   }
 
   dispose() {
-    this.target.dispose();
-    this.trace.dispose();
+    for (const { reflector } of this.mirrors) {
+      reflector.dispose();
+      reflector.geometry.dispose();
+    }
+    this.target?.dispose();
+    this.trace?.dispose();
     this.composite.dispose();
     this.quad.dispose();
   }

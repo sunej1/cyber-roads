@@ -1,5 +1,7 @@
 import { CatmullRomCurve3, Vector3, MathUtils } from 'three';
 import { closestSpine, coreEdge, makeDeparture, spinePoint } from './extent.js';
+import { blockDepth, blockWidth, isOnLand, park, plaza, streetFront } from './meridian-plan.js';
+export { park, plaza, shore } from './meridian-plan.js';
 
 export const districts = [
   { name: 'Harbor Approach', description: 'South breakwater', point: 0, color: '#65eddf' },
@@ -23,28 +25,10 @@ route.arcLengthDivisions = 1200;
 route.updateArcLengths();
 export const length = route.getLength();
 export const routeSamples = route.getSpacedPoints(560);
-export const park = { x: 10, z: 105, w: 228, d: 174 };
-export const plaza = { x: -220, z: 355, w: 142, d: 135 };
 export const harborExit = 1;
 export const departure = makeDeparture(route);
 const departureLength = departure.getLength();
 const departureSamples = departure.getSpacedPoints(94);
-
-export const shore = [
-  [-1080, 560], [-1040, 100], [-980, -490], [-718, -805], [-440, -995],
-  [15, -1020], [440, -940], [720, -680], [705, -310], [622, -80],
-  [704, 184], [832, 477], [715, 660], [427, 731], [400, 916],
-  [62, 979], [-256, 971], [-545, 936], [-817, 771],
-];
-
-function isOnLand(x, z) {
-  let inside = false;
-  for (let i = 0, j = shore.length - 1; i < shore.length; j = i++) {
-    const [leftX, leftZ] = shore[j], [rightX, rightZ] = shore[i];
-    if ((leftZ > z) !== (rightZ > z) && x < leftX + (rightX - leftX) * (z - leftZ) / (rightZ - leftZ)) inside = !inside;
-  }
-  return inside;
-}
 
 export function nearestRoute(position, through = 1) {
   let best = Infinity;
@@ -194,13 +178,17 @@ export function advanceFlight(flight, input, guided, dt, buildings) {
 export function generateBuildings() {
   const random = randomFor(7043);
   const buildings = [];
-  const add = building => {
+  const add = (building, front) => {
     const overlapsPublicSpace = [park, plaza].some(space =>
       Math.abs(space.x - building.x) < (space.w + building.w) / 2 + 7
       && Math.abs(space.z - building.z) < (space.d + building.d) / 2 + 7);
     const offshore = [-1, 1].some(x => [-1, 1].some(z =>
       !isOnLand(building.x + x * (building.w / 2 + 2), building.z + z * (building.d / 2 + 2))));
     if (offshore || overlapsPublicSpace || routeSamples.some(point => intersectsBuilding(point, building, 22))) return;
+    if (front) {
+      building = { ...building,yaw:front.yaw,frontage:true,streetGap:front.gap,
+        w:front.road.horizontal?building.w:building.d,d:front.road.horizontal?building.d:building.w };
+    }
     buildings.push(building);
   };
 
@@ -222,39 +210,46 @@ export function generateBuildings() {
     { x: -349, z: 909, w: 56, d: 55, h: 59, type: 12, sign: 'VERDANT', style: 5 },
     { x: 689, z: 516, w: 79, d: 81, h: 127, type: 6, sign: 'TIDELINE', style: 5 },
   ];
-  landmarks.forEach(add);
+  landmarks.forEach(building=>add(building));
 
   for (let row = -7; row <= 7; row++) {
     for (let column = -7; column <= 6; column++) {
-      const x = column * 136 + (random() - 0.5) * 26;
-      const z = row * 125 + (random() - 0.5) * 32;
+      const x = column * blockWidth, z = row * blockDepth;
       const density = Math.hypot((x + 95) / 1120, (z + 25) / 1040);
-      if (density > 1.03 + random() * 0.12 || (x > 590 && z < 110)) continue;
-      if (z > 770 && (x < -580 || x > 430)) continue;
-      const w = 55 + random() * 47;
-      const d = 49 + random() * 51;
-      const westbank=x<-505 && z>220;
-      const h=westbank? 22+random()*46 : 27+159*(1-Math.min(.94,density))+random()**1.25*103;
-      const type=westbank ? [10,13,15][Math.floor(random()*3)] : [0,1,2,3,4,5,6,7,8,9,14][Math.floor(random()*11)];
-      const style = Math.floor(random() * 6);
+      if (density>1.10 || (x>590 && z<110)) continue;
+      const westbank=x<-505 && z>150, waterfront=z>=700;
+      const civic = Math.hypot((x-park.x)/220,(z-park.z)/160)<1.25
+        || Math.hypot((x-plaza.x)/190,(z-plaza.z)/150)<1.20;
+      const hubs = Math.min(Math.hypot((x+204)/310,(z-562.5)/270),Math.hypot((x-204)/320,(z+62.5)/380));
+      const w = (westbank?82:65)+random()*22, d = (westbank?55:54)+random()*24;
+      const front = streetFront({x,z,w,d});
+      if (!front) continue;
+      const h = westbank?19+random()*29 : waterfront?14+random()*31 : civic?34+random()*37
+        : 39+120*Math.max(0,1-hubs*.55)+(front.road.kind==='avenue'?30:0)+random()*56;
+      const pool = westbank?[10,13,15]:waterfront?[13,14,16]:civic?[3,4,7,12]:[0,1,2,3,4,5,6,7,8,9,14];
+      const type = pool[Math.floor(random()*pool.length)];
+      const style = westbank?3:waterfront?5:Math.floor(random()*6);
       if (landmarks.some(tower => Math.abs(tower.x - x) < (w + tower.w) / 2 + 19
         && Math.abs(tower.z - z) < (d + tower.d) / 2 + 19)) continue;
-      add({ x, z, w, d, h, type, style });
+      add({ x,z,w,d,h,type,style,retail:!westbank },front);
     }
   }
-  for (let row = -5; row <= 6; row++) {
-    for (let column = -6; column <= 5; column++) {
-      const x = column * 136, z = row * 125;
-      if (Math.hypot((x + 95) / 965, (z - 35) / 920) > 1) continue;
-      for (const [dx, dz] of [[-35,-31],[34,-32],[-35,32],[33,32],[0,0]]) {
+  for (let row = -7; row <= 7; row++) {
+    for (let column = -7; column <= 6; column++) {
+      const x = column * blockWidth, z = row * blockDepth;
+      if (Math.hypot((x+95)/1080,(z-35)/1020)>1) continue;
+      for (const [dx, dz] of [[-37,-33],[37,-33],[-37,33],[37,33]]) {
         const footprint = {
-          x: x + dx + (random() - .5) * 7, z: z + dz + (random() - .5) * 8,
-          w: 20 + random() * 20, d: 19 + random() * 21, h: 8 + random() ** 1.6 * 45,
-          type: Math.floor(random() * 3), style: Math.floor(random() * 6),
+          x:x+dx,z:z+dz,w:24+random()*15,d:24+random()*12,h:9+random()**1.65*(z>=700?20:38),
+          type:13+Math.floor(random()*4),style:Math.floor(random()*6),retail:x>-510,
         };
-        if (buildings.some(b => Math.abs(b.x - footprint.x) < (b.w + footprint.w) / 2 + 5
-          && Math.abs(b.z - footprint.z) < (b.d + footprint.d) / 2 + 5)) continue;
-        add(footprint);
+        if (buildings.some(b => {
+          const quarterTurn = Math.abs(b.yaw)===Math.PI/2;
+          return Math.abs(b.x-footprint.x)<((quarterTurn?b.d:b.w)+footprint.w)/2+5
+            && Math.abs(b.z-footprint.z)<((quarterTurn?b.w:b.d)+footprint.d)/2+5;
+        })) continue;
+        const front=streetFront(footprint);
+        if (front) add(footprint,front);
       }
     }
   }

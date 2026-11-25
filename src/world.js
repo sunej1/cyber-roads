@@ -1,5 +1,5 @@
-import { CatmullRomCurve3, Vector3 } from 'three';
-import { blockSize, closestSpine, coreTile, districtForPosition, groundAt, landmarksNear, spinePoint,
+import { CatmullRomCurve3, MathUtils, Vector3 } from 'three';
+import { blockSize, closestSpine, coreTile, districtForPosition, groundAt, landmarksNear, riverAt, spinePoint,
   streetVertex, tileAt, tileSize, tileSeed } from './extent.js';
 import { departure, intersectsBuilding, randomFor } from './flight.js';
 
@@ -8,44 +8,106 @@ const lanesAcross = tileSize / blockSize;
 const outline = new Vector3();
 const approach = departure.getSpacedPoints(105);
 
-function pavedRoads(col, row) {
-  const originX = col * tileSize, originZ = row * tileSize;
-  const roads = [];
-  for (let j = 0; j < lanesAcross; j++) for (let i = 0; i < lanesAcross; i++) {
-    const gridX = col * lanesAcross + i - 2;
-    const gridZ = row * lanesAcross + j - 2;
-    for (const alongZ of [true, false]) {
-      const start = streetVertex(gridX * blockSize, gridZ * blockSize);
-      const end = streetVertex((gridX + +!alongZ) * blockSize, (gridZ + +alongZ) * blockSize);
-      const x = (start.x + end.x) / 2, z = (start.z + end.z) / 2;
-      const district = districtForPosition(x, z);
-      const major = (alongZ ? gridX : gridZ) % 4 === 0;
-      const rail = alongZ && (gridX % 12 === -2 || gridX % 12 === 10) && district.id === 'industry';
-      const minor = (alongZ ? gridX : gridZ) % 2 === 0;
-      const localX=((gridX%4)+4)%4, localZ=((gridZ%4)+4)%4;
-      const blockPlan=tileSeed(Math.floor(gridX/4),Math.floor(gridZ/4));
-      const access=blockPlan%2===0 ? 1 : 3;
-      const chance={ downtown:98, canal:68, industry:43, outskirts:0 }[district.id];
-      const random=tileSeed(gridX*2+Number(alongZ),gridZ)%100;
-      const localRoad=district.id==='outskirts'
-        ? alongZ ? localX===access && localZ<3 : localZ===2 && localX<access+1
-        : random<chance+(minor?22:0);
-      if (!major && !rail && !localRoad) continue;
-      const water = [start, { x, z }, end].map(point => groundAt(point.x, point.z) < -2.3);
-      const bridge = water.some(Boolean);
-      if (bridge && !major && !rail) continue;
-      if (water.every(Boolean) && !rail && (!alongZ || gridX % 12 !== 0)) continue;
-      const kind = rail ? 'rail' : major ? 'avenue' : minor ? 'collector' : 'street';
-      const width = rail ? 12 : major ? 23 : minor ? 13 : 9.5;
-      roads.push({ x: start.x - originX, z: start.z - originZ, toX: end.x - originX, toZ: end.z - originZ, kind, width, bridge });
+const mod = MathUtils.euclideanModulo;
+const roadWidths = { avenue: 25, collector: 16, street: 11, rail: 12 };
+const roadRank = { avenue: 3, collector: 2, street: 1 };
+const roadKey = (column,row,alongZ) => `${column}/${row}/${Number(alongZ)}`;
+
+function streetKind(column, row, alongZ, district) {
+  const x = mod(column,4), z = mod(row,4);
+  const across = alongZ ? x : z;
+  if (across === 0) return 'avenue';
+  if (district === 'downtown') return across === 2 ? 'collector' : 'street';
+  if (district === 'industry') {
+    if (alongZ && mod(column,12) === 10) return 'rail';
+    if (!alongZ && z === 2) return 'collector';
+    if (alongZ && (x === 1 || x === 3) && z >= 2) return 'street';
+  }
+  if (district === 'canal') {
+    if (across === 2) return 'collector';
+    if (alongZ ? x === 1 && z < 2 : z === 1 && x < 2) return 'street';
+  }
+  if (district === 'outskirts') {
+    const flipped = mod(Math.floor(column/4)+Math.floor(row/4),2) === 1;
+    const fromAvenue = flipped ? (alongZ ? 3-z : 4-z) : z;
+    if (alongZ ? (x === 1 || x === 3) && fromAvenue < 3 : fromAvenue === 3 && x >= 1 && x < 3) {
+      return 'street';
     }
   }
-  return roads;
 }
 
-function parcelPoint(lot, x, z) {
-  const cos = Math.cos(lot.yaw), sin = Math.sin(lot.yaw);
-  return [lot.x + x * cos + z * sin, lot.z + z * cos - x * sin];
+function pavedRoads(col, row) {
+  const firstX = col*lanesAcross-2, firstZ = row*lanesAcross-2;
+  const candidates = new Map(), links = new Map(), arterial = new Set();
+  const startNodes = new Map();
+  const vertex = (x,z) => {
+    const key = `${x}/${z}`;
+    if (!startNodes.has(key)) startNodes.set(key,streetVertex(x*blockSize,z*blockSize));
+    return startNodes.get(key);
+  };
+  const link = (from,to) => {
+    if (!links.has(from)) links.set(from,[]);
+    links.get(from).push(to);
+  };
+  // A superblock fits in the halo, so access checks see its connections across tile boundaries.
+  for (let z=firstZ-4;z<firstZ+lanesAcross+4;z++) for (let x=firstX-4;x<firstX+lanesAcross+4;x++) {
+    for (const alongZ of [true,false]) {
+      const dx = Number(!alongZ), dz = Number(alongZ);
+      const a = vertex(x,z), b = vertex(x+dx,z+dz);
+      const district = districtForPosition((a.x+b.x)*.5,(a.z+b.z)*.5).id;
+      const kind = streetKind(x,z,alongZ,district);
+      if (!kind) continue;
+      const underwater = t => groundAt(MathUtils.lerp(a.x,b.x,t),MathUtils.lerp(a.z,b.z,t)) < -2.35;
+      const water = [0,.25,.5,.75,1].map(underwater);
+      const bridge = water.some(Boolean);
+      if (bridge && kind !== 'avenue' && kind !== 'rail') continue;
+      if (water.every(Boolean)) {
+        const nearBank = vertex(x-dx,z-dz), farBank = vertex(x+2*dx,z+2*dz);
+        if (groundAt(nearBank.x,nearBank.z)<-2.35 || groundAt(farBank.x,farBank.z)<-2.35) continue;
+      }
+      const road = { a,b,kind,bridge,width:roadWidths[kind] };
+      candidates.set(roadKey(x,z,alongZ),road);
+      if (kind === 'rail') continue;
+      link(a,b);
+      link(b,a);
+      if (kind === 'avenue') { arterial.add(a); arterial.add(b); }
+    }
+  }
+  const reachable = new Set(arterial);
+  const queue = [...arterial];
+  for (let i=0;i<queue.length;i++) {
+    for (const neighbor of links.get(queue[i])) {
+      if (reachable.has(neighbor)) continue;
+      reachable.add(neighbor);
+      queue.push(neighbor);
+    }
+  }
+  const streetAt = (x,z,alongZ) => {
+    const road = candidates.get(roadKey(x,z,alongZ));
+    return road && (road.kind === 'rail' || reachable.has(road.a)) ? road : null;
+  };
+  const roads = [];
+  for (let z=firstZ;z<firstZ+lanesAcross;z++) for (let x=firstX;x<firstX+lanesAcross;x++) {
+    for (const alongZ of [true,false]) {
+      const road = streetAt(x,z,alongZ);
+      if (!road) continue;
+      const {a,b,kind,bridge,width} = road;
+      roads.push({x:a.x-col*tileSize,z:a.z-row*tileSize,toX:b.x-col*tileSize,toZ:b.z-row*tileSize,kind,bridge,width});
+    }
+  }
+  return { roads, streetAt };
+}
+
+function overlap(a, b, gap) {
+  for (const [first, second] of [[a,b],[b,a]]) {
+    const sine = Math.sin(first.yaw), cosine = Math.cos(first.yaw);
+    const dx = second.x-first.x, dz = second.z-first.z;
+    const angle = second.yaw-first.yaw;
+    const s = Math.abs(Math.sin(angle)), c = Math.abs(Math.cos(angle));
+    if (Math.abs(dx*cosine-dz*sine) >= (first.w+second.w*c+second.d*s)/2+gap
+      || Math.abs(dx*sine+dz*cosine) >= (first.d+second.w*s+second.d*c)/2+gap) return false;
+  }
+  return true;
 }
 
 export function generateTile(col, row) {
@@ -57,6 +119,7 @@ export function generateTile(col, row) {
   const buildings = [], blocks = [];
   const points = landmarksNear(x, z, edge + 155);
   const landmarks = [];
+  const reservations = points.map(point=>({ ...point,x:point.x-x,z:point.z-z }));
   const track = closestSpine(x, z);
   const passingGuide = [];
   for (let across = -edge - 42; across <= edge + 42; across += 6) {
@@ -78,73 +141,108 @@ export function generateTile(col, row) {
     buildings.push(building);
     landmarks.push(building);
   }
-  const roads = pavedRoads(col, row);
-  const add = (lot, dx, dz, w, d, h, type, style, sign) => {
-    const [localX, localZ] = parcelPoint(lot, dx, dz);
-    const orientation = random() < .5 ? lot.yaw : lot.yaw + Math.PI;
-    const footprint = { x: localX, z: localZ, yaw: sign || lot.kind==='downtown' ? lot.yaw : orientation, w, d, h, type, style, sign };
-    if (points.some(point => Math.abs(point.x - x - localX) < (point.w + w) / 2 + 16
-      && Math.abs(point.z - z - localZ) < (point.d + d) / 2 + 16)) return;
+  const { roads, streetAt } = pavedRoads(col,row);
+  const add = (lot, side, along, w, d, h, type, style, sign) => {
+    const setback = side.road.width/2 + (lot.use==='works' ? 17 : lot.use==='estate' ? 10 :
+      lot.use==='urban' && side.spine ? 19 : 6);
+    const depth = setback + d/2;
+    const localX = MathUtils.lerp(side.ax,side.bx,along)+side.inX*depth;
+    const localZ = MathUtils.lerp(side.az,side.bz,along)+side.inZ*depth;
+    const footprint = { x:localX,z:localZ,yaw:side.yaw,w,d,h,type,style,sign,frontage:true,
+      streetGap:setback-side.road.width/2,
+      retail:lot.use==='market' || lot.use==='urban' };
+    if (reservations.some(building=>overlap(building,footprint,11))
+      || lot.buildings.some(building=>overlap(building,footprint,4))) return;
     const corners = [[-w/2,-d/2],[w/2,-d/2],[-w/2,d/2],[w/2,d/2]];
-    if (corners.some(([a,b]) => !land(...parcelPoint(lot,dx+a,dz+b)))) return;
+    const sine = Math.sin(side.yaw), cosine = Math.cos(side.yaw);
+    for (const [across, back] of corners) {
+      const px = localX+across*cosine+back*sine, pz = localZ+back*cosine-across*sine;
+      if (!land(px,pz) || lot.sides.some(s=>(px-s.ax)*s.inX+(pz-s.az)*s.inZ<(s.road?.width??0)/2+4)) return;
+      if (lot.shorefront && riverAt(px+x,pz+z).distance<22) return;
+    }
     if (clearsGuide(footprint)) {
       buildings.push(footprint);
+      lot.buildings.push(footprint);
       return;
     }
     // Keep the street wall occupied where a tower would have cut into the low flight corridor.
-    const podium = { ...footprint, h: 11 + random() * 7, type: 13 };
-    if (h > 29 && clearsGuide(podium)) buildings.push(podium);
+    const industrial=lot.use==='works';
+    const podium = { ...footprint,h:industrial?8+random()*4:10+random()*6,type:industrial?15:13 };
+    if ((h>29 || industrial) && clearsGuide(podium)) { buildings.push(podium); lot.buildings.push(podium); }
   };
 
   for (let j = 0; j < lanesAcross; j++) for (let i = 0; i < lanesAcross; i++) {
     const gridX = x - edge + i * blockSize, gridZ = z - edge + j * blockSize;
-    const corners = [[0,0],[blockSize,0],[blockSize,blockSize],[0,blockSize]]
-      .map(([dx,dz]) => streetVertex(gridX + dx, gridZ + dz));
-    const px = corners.reduce((sum, point) => sum + (point.x - x), 0) / 4;
-    const pz = corners.reduce((sum, point) => sum + (point.z - z), 0) / 4;
+    const gx = gridX/blockSize, gz = gridZ/blockSize;
+    const corners = [[0,0],[blockSize,0],[blockSize,blockSize],[0,blockSize]].map(([dx,dz]) => {
+      const point=streetVertex(gridX+dx,gridZ+dz);
+      return [point.x-x,point.z-z];
+    });
+    const px = corners.reduce((sum,point)=>sum+point[0],0)/4;
+    const pz = corners.reduce((sum,point)=>sum+point[1],0)/4;
     const kind = districtForPosition(px + x, pz + z).id;
-    const lot = { x: px, z: pz, yaw: Math.atan2(corners[3].x - corners[0].x, corners[3].z - corners[0].z),
-      kind, corners: corners.map(point => [point.x - x, point.z - z]) };
     if (!land(px,pz)) continue;
+    const edges = [streetAt(gx,gz,false),streetAt(gx+1,gz,true),streetAt(gx,gz+1,false),streetAt(gx,gz,true)];
+    const sides = corners.map(([ax,az],index)=>{
+      const [bx,bz] = corners[(index+1)%4];
+      const dx = bx-ax, dz = bz-az, span = Math.hypot(dx,dz);
+      const spine=(index===1 && mod(gx+1,12)===0) || (index===3 && mod(gx,12)===0);
+      return { ax,az,bx,bz,index,inX:-dz/span,inZ:dx/span,yaw:Math.atan2(dz,-dx),road:edges[index],spine };
+    });
+    const isAccess = ({road})=>road && !road.bridge && road.kind!=='rail';
+    const rank = (a,b)=>roadRank[b.road.kind]-roadRank[a.road.kind] || Number(b.spine)-Number(a.spine);
+    const access = sides.filter(isAccess).sort(rank);
+    const front = access[0];
+    const rail = sides.find(side=>side.road?.kind==='rail');
+    const localX = mod(gx,4), localZ = mod(gz,4);
+    const shoreDistance=riverAt(px+x,pz+z).distance;
+    const shorefront = kind==='canal' && shoreDistance<112;
+    const lot = { x:px,z:pz,yaw:(front??sides[0]).yaw,kind,corners,sides,shorefront,front,rail,buildings:[] };
     blocks.push(lot);
-    const roll = random();
+    if (!front) { lot.use='grove'; continue; }
     if (kind === 'downtown') {
-      if (roll < .088) { lot.use = 'plaza'; continue; }
+      if (localX===2 && localZ===0 && access.some(side=>side.road.kind==='collector')
+        && front.road.kind==='avenue') { lot.use='plaza'; continue; }
       lot.use = 'urban';
-      const column = ((Math.round(gridX/blockSize) % 12) + 12) % 12;
-      for (const [dx,dz] of [[-34,-33],[32,-34],[-33,32],[33,32]]) {
+      const column = mod(gx,12);
+      for (let corner=0;corner<4;corner++) {
+        const adjacent = [sides[corner],sides[(corner+3)%4]].filter(isAccess).sort(rank);
+        const side = adjacent[0];
+        if (!side) continue;
         const type = [2,4,5,7,8,9,14][Math.floor(random()*7)];
-        const frontage = (column===0 && dx<0) || (column===11 && dx>0);
-        const h = frontage ? 90 + random()*152 : 49 + random()**1.36*192;
-        const sign = h > 102 && random() < .23 ? ['kairos','optics','metro','nova'][Math.floor(random()*4)] : undefined;
-        const w = 42 + random()*16, d = 40 + random()*15;
-        add(lot, dx, dz, w, d, h, type, [0,1,2,4][Math.floor(random()*4)], sign);
-      }
-      for (const side of [-1, 1]) {
-        add(lot, -side*2, side*51, 15+random()*9, 18+random()*6, 12+random()*22,
-          13, random() < .65 ? 4 : 2, random() < .34 ? 'optics' : undefined);
+        const canyon = column===0 || column===11;
+        const h = (canyon?105:side.road.kind==='street'?62:84)+random()**1.23*(canyon?139:108);
+        const sign = h>102 && side.road.kind!=='street' && random()<.29
+          ? ['kairos','optics','metro','nova'][Math.floor(random()*4)] : undefined;
+        const width=44+random()*10, depth=(side.spine?22:35)+random()*11;
+        add(lot,side,corner===side.index?.255:.745,width,depth,h,
+          type,[0,1,2,4][Math.floor(random()*4)],sign);
       }
     } else if (kind === 'industry') {
-      if (roll < .27) { lot.use = roll < .13 ? 'tanks' : 'yard'; continue; }
+      if (rail) { lot.use=localZ<2?'yard':'tanks'; continue; }
       lot.use = 'works';
-      add(lot, -9, 3, 102 + random()*11, 60 + random()*17, 17 + random()*26, roll < .66 ? 15 : 10, 3);
-      add(lot, 31, -47, 35, 18, 8 + random()*7, 13, 4, 'freight');
+      add(lot,front,.50,74+random()*25,53+random()*10,18+random()*18,random()<.67?15:10,3,'freight');
     } else if (kind === 'outskirts') {
-      if (roll < .49) { lot.use = 'grove'; continue; }
-      lot.use = 'estate';
-      const side = roll < .75 ? -1 : 1;
-      for (let k = -2; k <= 2; k++) {
-        add(lot, k*21, side*(23 + 7*Math.abs(k)), 13+random()*5, 15+random()*12,
-          10+random()*15, 16, [0,3,4,5][Math.floor(random()*4)]);
+      if (shoreDistance<86 || (front.road.kind==='avenue' && access.length===1) || (localX===1 && localZ===1)) {
+        lot.use='grove';
+        continue;
       }
-      if (roll > .8) add(lot, 8, -side*26, 63, 25, 12, 16, 5, 'verdant');
+      lot.use = 'estate';
+      const residential = access.find(side=>side.road.kind==='street')??front;
+      for (let k=0;k<5;k++) {
+        add(lot,residential,.16+k*.17,13+random()*4,15+random()*8,
+          9+random()*9,16,[0,3,4,5][Math.floor(random()*4)]);
+      }
     } else {
-      if (roll < .23) { lot.use = roll < .12 ? 'yard' : 'plaza'; continue; }
+      if (shorefront && access.length>=2 && (localX+localZ)%2===0) { lot.use='plaza'; continue; }
       lot.use = 'market';
-      for (const [dx,dz] of [[-40,-33],[-6,-36],[38,-35],[-34,28],[15,24],[49,28]]) {
-        const h = 13 + random()**1.7*85;
-        add(lot, dx, dz, 21+random()*10, 29+random()*9, h, h < 24 ? 16 : 14,
-          random() < .67 ? 5 : 4, random() < .19 ? 'market' : undefined);
+      for (const at of [.21,.50,.79]) {
+        const h=14+random()**1.6*(shorefront?28:58);
+        add(lot,front,at,24+random()*9,29+random()*9,h,h<26?16:14,random()<.67?5:4,at===.5?'market':undefined);
+      }
+      const back=access.find(side=>side.index===(front.index+2)%4);
+      if (back) for (const at of [.27,.73]) {
+        add(lot,back,at,32+random()*7,30+random()*8,16+random()*26,14,5);
       }
     }
   }

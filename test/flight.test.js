@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { Vector3 } from 'three';
 import { closestSpine, coreEdge, districtForPosition, landmarksNear, spinePoint, streetVertex, tileAt, tileSize } from '../src/extent.js';
 import { airCircuits, streetRuns } from '../src/traffic.js';
+import { streetFront, streets } from '../src/meridian-plan.js';
 import { generateTile, localTraffic } from '../src/world.js';
 import { advanceFlight, departure, districtAt, districts, generateBuildings, harborExit, intersectsBuilding, length, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route } from '../src/flight.js';
 
@@ -87,6 +88,65 @@ test('the district belt has connected avenues, bridges, freight tracks and disti
   assert.ok(canal.roads.some(r=>r.kind==='avenue' && r.toX+canal.x===border.x && r.toZ+canal.z===border.z));
   assert.ok(downtown.roads.some(r=>r.kind==='avenue' && r.x+downtown.x===border.x && r.z+downtown.z===border.z));
   assert.ok([canal,downtown,industry,outskirts].every(tile=>tile.roads.some(r=>Math.abs(r.x-r.toX)>8 && Math.abs(r.z-r.toZ)>8)));
+});
+
+test('district streets reach avenues and developed plots face their access streets', () => {
+  const links=new Map(), avenues=new Set(), inner=[];
+  const point=(x,z)=>`${x.toFixed(3)}/${z.toFixed(3)}`;
+  const connect=(from,to)=>{
+    if (!links.has(from)) links.set(from,[]);
+    links.get(from).push(to);
+  };
+  const uses=new Set();
+  for (let row=3;row<=10;row++) for (let col=-3;col<=3;col++) {
+    const tile=generateTile(col,row);
+    for (const road of tile.roads) {
+      if (road.kind==='rail') continue;
+      const from=point(road.x+tile.x,road.z+tile.z), to=point(road.toX+tile.x,road.toZ+tile.z);
+      connect(from,to);
+      connect(to,from);
+      if (road.kind==='avenue') { avenues.add(from); avenues.add(to); }
+      if (Math.abs(col)<=1 && row>=4 && row<=9) inner.push(from);
+    }
+    for (const lot of tile.blocks) {
+      uses.add(lot.use);
+      if (['yard','tanks'].includes(lot.use)) assert.equal(lot.rail?.road.kind,'rail');
+      if (lot.use==='plaza') assert.ok(lot.front?.road && !lot.front.road.bridge);
+      for (const building of lot.buildings) {
+        const side=lot.sides.find(side=>side.yaw===building.yaw && side.road?.kind!=='rail' && side.road);
+        assert.ok(side && !side.road.bridge);
+        const gap=(building.x-side.ax)*side.inX+(building.z-side.az)*side.inZ-building.d/2-side.road.width/2;
+        assert.ok(Math.abs(gap-building.streetGap)<1e-5);
+      }
+    }
+  }
+  for (const use of ['market','urban','plaza','yard','tanks','estate','grove']) assert.ok(uses.has(use),use);
+  const reached=[...avenues];
+  for (let i=0;i<reached.length;i++) for (const neighbor of links.get(reached[i])) {
+    if (avenues.has(neighbor)) continue;
+    avenues.add(neighbor);
+    reached.push(neighbor);
+  }
+  assert.ok(inner.every(node=>avenues.has(node)));
+});
+
+test('Meridian storefronts face streets and through roads skirt its park and square', () => {
+  for (const road of streets) for (const space of [park,plaza]) {
+    const across=road.horizontal?space.z:space.x;
+    const halfWidth=(road.horizontal?space.d:space.w)/2;
+    if (Math.abs(road.center-across)>=halfWidth+road.width/2) continue;
+    const along=road.horizontal?space.x:space.z;
+    const halfSpan=(road.horizontal?space.w:space.d)/2;
+    assert.ok(road.end<=along-halfSpan || road.start>=along+halfSpan);
+  }
+  const storefronts=generateBuildings().filter(building=>building.frontage && building.retail);
+  assert.ok(storefronts.length>150);
+  for (const building of storefronts) {
+    const {x,z,w,d,yaw}=building;
+    const quarterTurn=Math.abs(yaw)===Math.PI/2;
+    const front=streetFront({x,z,w:quarterTurn?d:w,d:quarterTurn?w:d});
+    assert.equal(front?.yaw,yaw);
+  }
 });
 
 test('the central air lane weaves between tower walls and passes the five mapped landmarks', () => {

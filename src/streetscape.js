@@ -88,8 +88,9 @@ export function facadeClusters(faces) {
         radius:Math.hypot(width*.5,height*.5,5), ...extra,
       });
     };
+    const storefront = face.storefront ?? (face.index%2===0 || b.h>83 && span>15);
     if (low < .2 && span>9.5 && b.h>=9 && ![10,11,12,15].includes(b.type)
-      && top>5 && (face.index%2===0 || b.h>83 && span>15)) {
+      && top>5 && storefront) {
       const count=span>43 ? 3 : span>24 ? 2 : 1;
       const slot=span/count;
       for (let i=0;i<count;i++) {

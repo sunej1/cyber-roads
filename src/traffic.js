@@ -1,18 +1,6 @@
 import { CatmullRomCurve3, Vector3 } from 'three';
 import { intersectsBuilding, park, plaza, routeSamples } from './flight.js';
-
-export const streets = [
-  ...Array.from({ length: 12 }, (_, i) => {
-    const center = (i - 6) * 136 + 68;
-    return { horizontal: false, center, width: 16, start: center > 540 ? 160 : -800 + Math.max(0, -center - 490) * .6,
-      end: center > 430 ? 620 : center < -540 ? 730 : 888 };
-  }),
-  ...Array.from({ length: 13 }, (_, i) => {
-    const center = (i - 6) * 125 + 62.5;
-    return { horizontal: true, center, width: 13, start: Math.abs(center) > 660 ? -668 : -925,
-      end: center > 650 ? 391 : center > 150 ? 641 : 553 };
-  }),
-];
+import { streets } from './meridian-plan.js';
 
 const circuitPlans = [
   // The inbound and outbound airport patterns run at different heights through the harbor.

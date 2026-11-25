@@ -3,7 +3,8 @@ import { box, batch, beam, line, neon } from './scene-parts.js';
 import { towers, facadeColors, structural, trim } from './architecture.js';
 import { setScreenTime } from './ads.js';
 import { generateBuildings, park, plaza, randomFor, shore } from './flight.js';
-import { airCircuits, streetRuns, streets as streetGrid } from './traffic.js';
+import { airCircuits, streetRuns } from './traffic.js';
+import { blockWidth, streets as streetGrid } from './meridian-plan.js';
 import { addMovingTraffic } from './street-life.js';
 import { coreTile, districtForPosition, groundAt, riverAt, streetVertex, tileAt, tileSize } from './extent.js';
 import { generateTile, localTraffic } from './world.js';
@@ -142,6 +143,14 @@ const pavementGlow = new THREE.ShaderMaterial({
 });
 const pavingPlane = new THREE.PlaneGeometry().rotateX(-Math.PI / 2);
 
+function entryPath(items, building) {
+  const yaw=building.yaw??0, depth=building.d/2;
+  const dx=Math.sin(yaw), dz=Math.cos(yaw);
+  const end=depth+building.streetGap-1.4;
+  line(items,building.x+dx*depth,.19,building.z+dz*depth,
+    building.x+dx*end,building.z+dz*end,Math.min(building.w*.46,building.retail?9.3:4.2),.33);
+}
+
 function ground(scene, buildings) {
   scene.add(shapeMesh(shore, 0, stone));
   const cliff = new MeshBasicMaterial({ color: '#1d2433' });
@@ -166,7 +175,7 @@ function ground(scene, buildings) {
     }
   };
 
-  for (const { horizontal, center, width, start, end } of streetGrid) {
+  for (const { horizontal, center, width, start, end, kind } of streetGrid) {
     const coordinates = (across, offset = 0) => horizontal ? [across, center + offset] : [center + offset, across];
     const roadBetween = (target, height, from, to, w, offset, thickness) => {
       const [x,z] = coordinates(from,offset);
@@ -177,8 +186,12 @@ function ground(scene, buildings) {
       roadBetween(curbs,.21,start,end,2.9,side*(width/2+1.6));
       roadBetween(paint,.23,start,end,.18,side*(width/2-.53),.08);
     }
-    lightsAlong(...coordinates(start,width/2+2.4),...coordinates(end,width/2+2.4),35,5.8);
-    for (let across = start + 17; across < end - 10; across += 22) roadBetween(paint,.23,across,across+8,.28,0,.065);
+    lightsAlong(...coordinates(start,width/2+2.4),...coordinates(end,width/2+2.4),kind==='avenue'?26:35,5.8);
+    if (kind==='avenue') {
+      for (const offset of [-.46,.46]) roadBetween(paint,.23,start+5,end-5,.19,offset,.057);
+    } else {
+      for (let across=start+17;across<end-10;across+=22) roadBetween(paint,.23,across,across+8,.28,0,.065);
+    }
     for (let across = start + 19; across < end - 20; across += 35) {
       const [x,z] = coordinates(across, width*.13);
       if ([park,plaza].some(space => Math.abs(x-space.x) < space.w/2 && Math.abs(z-space.z) < space.d/2)) continue;
@@ -187,9 +200,9 @@ function ground(scene, buildings) {
     }
     if (!horizontal) continue;
     for (let col = -6; col <= 4; col++) {
-      const crossing = col * 136 + 68;
+      const crossing = col * blockWidth + blockWidth/2;
       if (crossing < start + 18 || crossing > end - 18) continue;
-      if ([park,plaza].some(space => Math.abs(crossing-space.x) < space.w/2+9 && Math.abs(center-space.z) < space.d/2+9)) continue;
+      if (!streetGrid.some(road=>!road.horizontal && road.center===crossing && road.start<center && road.end>center)) continue;
       for (const side of [-1, 1]) {
         for (let stripe = -11; stripe <= 11; stripe += 2.6) {
           paint.push([crossing + stripe*.55,.24,center+side*9.7,1.0,.08,3.3]);
@@ -239,7 +252,6 @@ function ground(scene, buildings) {
     if (i % 3) lamps.push([x, 4.31, z + 5.1, 16.8, .16, .16]);
     else signs.push([x, 4.31, z + 5.1, 16.8, .16, .16]);
   }
-  line(streets, -320, .1, 925, 19, 925, 9);
   lightsAlong(-315, 930, 22, 930, 18, 4.2);
   const pond = new Mesh(new THREE.CylinderGeometry(22, 22, .46, 36), neon('#3484a9', .9));
   pond.position.set(plaza.x, 1.24, plaza.z);
@@ -270,34 +282,44 @@ function ground(scene, buildings) {
   }
 
   for (const b of buildings) {
-    curbs.push([b.x,.48,b.z,b.w+11,.68,b.d+11]);
-    const z = b.z+b.d/2+1.7;
-    if (random() < .89) {
+    const { x,z,w,d,yaw=0 } = b;
+    const sin=Math.sin(yaw), cos=Math.cos(yaw);
+    curbs.push([x,.30,z,w+6,.58,d+6,yaw]);
+    if (b.frontage) entryPath(curbs,b);
+    const front=(across,depth)=>[x+across*cos+(d/2+depth)*sin,z-across*sin+(d/2+depth)*cos];
+    if (b.retail!==false && random() < .89) {
       const lamp = b.style === 2 ? signals : b.style === 1 || b.style === 5 ? signs : lamps;
-      lamp.push([b.x,3.7,z,Math.min(b.w*.65,7+random()*18),.86,.29]);
-      spill.push([b.x,.86,z+3.7,Math.min(b.w,29),1,12,0,lightColors[b.style]]);
+      const [lx,lz]=front(0,1.7), [poolX,poolZ]=front(0,5.4);
+      lamp.push([lx,3.7,lz,Math.min(w*.65,7+random()*18),.86,.29,yaw]);
+      spill.push([poolX,.65,poolZ,Math.min(w,29),1,12,yaw,lightColors[b.style]]);
       for (const side of [-1,1]) {
-        const x = b.x+side*b.w*.28;
-        poles.push([x,1.68,z+.75,.32,2.7,.33]);
-        lamp.push([x,2.92,z+1.05,.51,.66,.44]);
+        const [px,pz]=front(side*w*.28,2.45), [sx,sz]=front(side*w*.28,2.75);
+        poles.push([px,1.68,pz,.32,2.7,.33]);
+        lamp.push([sx,2.92,sz,.51,.66,.44,yaw]);
       }
     }
-    if (b.h > 65 && random() < .55) {
+    if (b.retail!==false && b.h>65 && random()<.55) {
       for (let i = -2; i <= 2; i++) {
-        const x = b.x + i*b.w*.14;
-        awnings.push([x,3.55,z+1.3,b.w*.126,.57,3.65,0,i%2 ? '#70504b' : '#4f5b5e']);
-        lamps.push([x,2.9,z+2.8,b.w*.10,.18,.27]);
+        const [ax,az]=front(i*w*.14,3), [lx,lz]=front(i*w*.14,4.5);
+        awnings.push([ax,3.55,az,w*.126,.57,3.65,yaw,i%2?'#70504b':'#4f5b5e']);
+        lamps.push([lx,2.9,lz,w*.10,.18,.27,yaw]);
       }
     }
   }
   const junction=streetVertex(0,1760);
-  const causeway=[[-244,937],[-244,1157],[-207,1394],[junction.x,junction.z]];
+  const causeway=[[-204,.24,925],[-237,2.8,1023],[-244,2.8,1157],[-207,2.8,1394],
+    [junction.x-42,2.8,junction.z-82],[junction.x,.32,junction.z]];
   for (let i=1;i<causeway.length;i++) {
-    const [x,z]=causeway[i-1], [tx,tz]=causeway[i];
-    line(streets,x,2.7,z,tx,tz,25,2.2);
-    for (const offset of [-11,11]) {
-      line(curbs,x+offset,4.09,z,tx+offset,tz,1.21,1.75);
-      lightsAlong(x+offset,z,tx+offset,tz,33,6.1);
+    const [x,y,z]=causeway[i-1], [tx,ty,tz]=causeway[i];
+    const length=Math.hypot(tx-x,tz-z), dx=(tz-z)/length, dz=(x-tx)/length;
+    const rotation=new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.atan2(ty-y,length),Math.atan2(tx-x,tz-z),0,'YXZ'));
+    const deck=(items,offset,height,width,thickness)=>items.push([(x+tx)/2+dx*offset,(y+ty)/2+height,
+      (z+tz)/2+dz*offset,width,thickness,Math.hypot(length,ty-y)+.85,rotation]);
+    deck(streets,0,-.48,25,.96);
+    for (const side of [-1,1]) {
+      const offset=side*11.75;
+      deck(curbs,offset,.48,1.15,.96);
+      lightsAlong(x+dx*offset,z+dz*offset,tx+dx*offset,tz+dz*offset,36,6.1);
     }
     for (let step=.1;step<1;step+=.18) curbs.push([x+(tx-x)*step,-1.4,z+(tz-z)*step,7,7,4.4]);
   }
@@ -439,6 +461,7 @@ function drawTile(tile, detail) {
   const paved=[], roads=[], marks=[], lights=[], pools=[], curbs=[], lawns=[], docks=[], tanks=[], rails=[], trees=[], trunks=[];
   const random=randomFor(tile.seed ^ 0x1927347);
   const marketPaths=[];
+  const basins=[];
   const planted=(x,z,scale=1)=>{
     const h=(4.5+random()*7.8)*scale;
     const color=['#424e36','#465543','#535a37','#3b4b3c','#656748'][Math.floor(random()*5)];
@@ -446,19 +469,31 @@ function drawTile(tile, detail) {
     trees.push([x,h*.72,z,h*.67,h*.93,h*.65,random()*6.28,color]);
     if (detail) trees.push([x+h*.14,h*.56,z+h*.055,h*.49,h*.60,h*.48,random()*6.28,color]);
   };
-  for (const {x,z,use,yaw} of tile.blocks) {
+  for (const {x,z,use,yaw,front,rail,shorefront,buildings} of tile.blocks) {
+    const sin=Math.sin(yaw), cos=Math.cos(yaw);
+    const orient=(across,depth)=>[x+across*cos+depth*sin,z-across*sin+depth*cos];
+    if (detail) for (const building of buildings) entryPath(paved,building);
     if (use==='plaza' || use==='estate' || use==='grove') {
       if (use==='plaza') {
-        const color='#57665c';
-        lawns.push([x,.14,z,72,.28,62,yaw,color]);
-        paved.push([x,.25,z,17,.44,69,yaw],[x,.251,z,68,.44,13,yaw]);
-        for (const a of [-29,29]) for (const b of [-25,25]) planted(x+a,z+b,1.22);
+        paved.push([x,.17,z,93,.34,71,yaw]);
+        const wx=(front.ax+front.bx)/2, wz=(front.az+front.bz)/2;
+        line(paved,x,.19,z,wx+front.inX*(front.road.width/2+1.1),wz+front.inZ*(front.road.width/2+1.1),9,.32);
+        const [bx,bz]=orient(0,-15);
+        basins.push([bx,.31,bz,shorefront?35:26,.22,10,yaw]);
+        for (const a of [-29,29]) for (const b of [-23,20]) {
+          const [px,pz]=orient(a,b);
+          lawns.push([px,.42,pz,23,.34,10,yaw,'#54674e']);
+          planted(px,pz,1.22);
+          if (detail) curbs.push([px,.37,pz,24,.38,10.9,yaw]);
+        }
         if (detail) {
-          for (const offset of [-31,-17,17,31]) {
-            lights.push([x+offset,1.22,z+7,.45,.45,.45],[x-7,1.22,z+offset,.45,.45,.45]);
-            pools.push([x+offset,.46,z+6,5,1,8,0,'#e0b174'],[x-7,.46,z+offset,8,1,6,0,'#a3c7b7']);
+          for (const offset of [-31,-16,16,31]) {
+            const [px,pz]=orient(offset,9);
+            curbs.push([px,1.22,pz,.27,2.44,.27]);
+            lights.push([px,2.49,pz,.40,.29,.40]);
+            pools.push([px,.37,pz,7,1,8,yaw,'#c9d9b2']);
           }
-          marketPaths.push([x-32,z+2,x+30,z+2,7]);
+          marketPaths.push([...orient(-39,5),...orient(39,5),8]);
         }
       } else {
         const count=use==='grove'?(detail?17:9):detail?6:3;
@@ -482,6 +517,9 @@ function drawTile(tile, detail) {
       }
     } else if (use==='yard') {
       paved.push([x,.12,z,117,.24,113,yaw]);
+      const gateX=(front.ax+front.bx)/2+front.inX*front.road.width*.5;
+      const gateZ=(front.az+front.bz)/2+front.inZ*front.road.width*.5;
+      line(paved,x,.19,z,gateX,gateZ,11,.34);
       for (let i=0;i<12;i++) {
         const a=(i%4-1.5)*19,b=(Math.floor(i/4)-1)*25;
         if (groundAt(x+a+tile.x,z+b+tile.z)<-.9) continue;
@@ -490,6 +528,15 @@ function drawTile(tile, detail) {
         if (detail) for (let j=-2;j<=2;j++) rails.push([x+a+5.99,1.46,z+b+j*3.95,.15,2.79,.18]);
       }
       if (detail) {
+        const track=(t,offset)=>[THREE.MathUtils.lerp(rail.ax,rail.bx,t)+rail.inX*offset,
+          THREE.MathUtils.lerp(rail.az,rail.bz,t)+rail.inZ*offset];
+        for (const offset of [-1.47,1.47]) {
+          const points=[track(.07,offset),track(.24,14+offset),track(.76,14+offset),track(.93,offset)];
+          for (let i=1;i<points.length;i++) {
+            const [a,b]=points[i-1], [c,d]=points[i];
+            line(rails,a,.49,b,c,d,.19,.17);
+          }
+        }
         for (const side of [-1,1]) {
           const xx=x+side*44;
           curbs.push([xx,8.18,z-36,1.65,16.4,1.65]);
@@ -511,6 +558,8 @@ function drawTile(tile, detail) {
           marketPaths.push([x-25,z+7,x+31,z+7,4]);
         }
       }
+    } else if (use==='works') {
+      paved.push([x,.10,z,106,.22,115,yaw]);
     }
   }
 
@@ -537,17 +586,19 @@ function drawTile(tile, detail) {
       }
     }
   }
-  if (detail && tile.district.id==='canal') {
-    for (const side of [-1,1]) for (let z=-tileSize/2;z<tileSize/2;z+=20) {
-      const bank=riverAt(tile.x,tile.z+z),next=riverAt(tile.x,tile.z+z+20);
-      const x=bank.center+side*(bank.width+16)-tile.x;
-      const tx=next.center+side*(next.width+16)-tile.x;
-      if (Math.abs(x)>tileSize/2 || Math.abs(tx)>tileSize/2 || groundAt(x+tile.x,z+tile.z)<-1.7) continue;
-      line(curbs,x,-.74,z,tx,z+20,2.65,2.2);
-      if (Math.round(z/20)%2===0) {
-        curbs.push([x,.45,z,1.3,1.55,1.25]);
-        lights.push([x,1.28,z,.61,.29,.60]);
-      }
+  for (const side of [-1,1]) for (let z=-tileSize/2;z<tileSize/2;z+=20) {
+    const bank=riverAt(tile.x,tile.z+z),next=riverAt(tile.x,tile.z+z+20);
+    const x=bank.center+side*(bank.width+16)-tile.x;
+    const tx=next.center+side*(next.width+16)-tile.x;
+    const midpoint=(x+tx)/2+tile.x;
+    if (tileAt(midpoint)!==tileAt(tile.x) || districtForPosition(midpoint,z+tile.z+10).id!=='canal'
+      || groundAt(x+tile.x,z+tile.z)<-1.7) continue;
+    line(paved,x+side*4,.12,z,tx+side*4,z+20,8.3,.28);
+    if (!detail) continue;
+    line(curbs,x,-.74,z,tx,z+20,2.65,2.2);
+    if (Math.round(z/20)%2===0) {
+      curbs.push([x,.45,z,1.3,1.55,1.25]);
+      lights.push([x,1.28,z,.61,.29,.60]);
     }
   }
   const junctions=[];
@@ -572,10 +623,11 @@ function drawTile(tile, detail) {
         line(rails,x+nx*offset,y+.31,z+nz*offset,toX+nx*offset,toZ+nz*offset,.22,.25);
       }
     }
-    if (kind!=='street') {
+    if (kind!=='rail') {
       for (const side of [-1,1]) {
-        const s=side*(width*.5+.9);
-        line(curbs,x+nx*s,y+.18,z+nz*s,toX+nx*s,toZ+nz*s,1.8,.38);
+        const walk=kind==='avenue'?3.3:kind==='collector'?2.5:1.8;
+        const s=side*(width*.5+walk*.5);
+        line(curbs,x+nx*s,y+.09,z+nz*s,toX+nx*s,toZ+nz*s,walk,.29);
         if (bridge) line(rails,x+nx*s,y+.82,z+nz*s,toX+nx*s,toZ+nz*s,.45,.61);
       }
     }
@@ -609,6 +661,7 @@ function drawTile(tile, detail) {
 
   batch(group,box,stone,paved);
   batch(group,box,publicGreen,lawns);
+  batch(group,box,bridgeGlass,basins);
   batch(group,box,paintedMetal,docks);
   batch(group,circle,paintedMetal,tanks);
   batch(group,box,asphalt,roads);

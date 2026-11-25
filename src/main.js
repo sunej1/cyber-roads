@@ -7,9 +7,10 @@ import { RayLightingPass } from './ray-lighting.js';
 import { installSkyProbe } from './surface-materials.js';
 import { createCity } from './city.js';
 import { createCraft } from './craft.js';
+import { createRain } from './weather.js';
 import { advanceFlight, departure, districtAt, districts, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route, routeSamples, shore } from './flight.js';
 import { closestSpine, coreEdge, coreTile, districtForPosition, groundAt, spinePoint, tileAt, tileSize } from './extent.js';
-import { streets as cityStreets } from './traffic.js';
+import { streets as cityStreets } from './meridian-plan.js';
 import './style.css';
 
 const element = id => document.getElementById(id);
@@ -72,9 +73,9 @@ function drawMapBase() {
   ctx.stroke();
   ctx.save();
   ctx.clip();
-  for (const { horizontal, center, start, end, width } of cityStreets) {
-    ctx.strokeStyle = width > 14 ? '#798887aa' : '#546771ae';
-    ctx.lineWidth = width > 14 ? 1.12 : .66;
+  for (const { horizontal, center, start, end, kind } of cityStreets) {
+    ctx.strokeStyle = kind === 'avenue' ? '#838d85' : '#546771ae';
+    ctx.lineWidth = kind === 'avenue' ? 1.27 : .66;
     ctx.beginPath();
     ctx.moveTo(mapX(horizontal?start:center), mapY(horizontal?center:start));
     ctx.lineTo(mapX(horizontal?end:center), mapY(horizontal?center:end));
@@ -125,7 +126,7 @@ const desiredTarget = new THREE.Vector3();
 const target = new THREE.Vector3();
 const origin = new THREE.Vector3();
 const pace = 1 / 120;
-let renderer, scene, camera, composer, city, craft, rayPass;
+let renderer, scene, camera, composer, city, craft, rayPass, updateRain;
 let status = 'ready';
 let flight = newFlight();
 let guided = true;
@@ -199,11 +200,11 @@ function startFlight(useGuide, restart = false) {
 
 function setRayLighting(enabled) {
   if (!rayPass) return;
-  rayPass.enabled=enabled;
+  rayPass.raysEnabled=enabled;
   lightingButton.setAttribute('aria-pressed',String(enabled));
 }
 
-lightingButton.addEventListener('click',()=>setRayLighting(!rayPass?.enabled));
+lightingButton.addEventListener('click',()=>setRayLighting(!rayPass?.raysEnabled));
 
 function changeCamera() {
   if (status !== 'flying') return;
@@ -551,6 +552,8 @@ function frame(now) {
   craft.group.position.sub(origin);
   updateCamera(dt);
   city.afterCamera(now,dt,flight.position,camera,origin,height*renderer.getPixelRatio());
+  updateRain(time, reduceMotion.matches);
+  rayPass.clock.value = time;
   composer.render();
 }
 
@@ -560,30 +563,32 @@ function boot() {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.17;
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2('#525b55', .00059);
+    scene.fog = new THREE.FogExp2('#44515b', .00054);
     camera = new THREE.PerspectiveCamera(61, 1, .25, 7400);
-    const fill = new THREE.HemisphereLight('#b8d0d9', '#585046', 1.23);
-    const rim = new THREE.DirectionalLight('#edc7a3', 1.22);
+    const fill = new THREE.HemisphereLight('#a8c2d6', '#574941', 1.17);
+    const rim = new THREE.DirectionalLight('#e8b99c', 1.14);
     rim.position.set(-3, 5, -6);
-    const front = new THREE.DirectionalLight('#8bbebd', .62);
+    const front = new THREE.DirectionalLight('#80b6c6', .67);
     front.position.set(4, 2.4, 7);
     scene.add(fill, rim, front);
     const hdr=renderer.extensions.has('EXT_color_buffer_float');
     if (hdr) installSkyProbe(renderer,scene);
     city = createCity(scene);
     craft = createCraft(scene);
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    updateRain = createRain(scene,camera,coarse);
 
     const target=new THREE.WebGLRenderTarget(1,1,{type:hdr?THREE.HalfFloatType:THREE.UnsignedByteType});
-    if (hdr) target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
+    target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
     composer = new EffectComposer(renderer,target);
     const render = new RenderPass(scene, camera);
     const bloom = new UnrealBloomPass(new THREE.Vector2(), .51, .52, .98);
     composer.addPass(render);
+    rayPass=new RayLightingPass(scene,camera,()=>city.lights,hdr,origin);
+    composer.addPass(rayPass);
     if (hdr) {
-      rayPass=new RayLightingPass(camera,()=>city.lights);
-      composer.addPass(rayPass);
       lightingButton.hidden=false;
-      setRayLighting(!matchMedia('(pointer: coarse)').matches);
+      setRayLighting(!coarse);
       composer.addPass(bloom);
     }
     composer.addPass(new OutputPass());

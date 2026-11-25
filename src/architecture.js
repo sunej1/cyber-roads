@@ -4,6 +4,7 @@ import { addScreens, campaignFor } from './ads.js';
 import { batch, beam, box, line, neon, texture } from './scene-parts.js';
 import { drawSurface, surfaceMap } from './surface-materials.js';
 import { facadeClusters } from './streetscape.js';
+import { addWindowInteriors } from './window-interiors.js';
 
 const { Mesh, MeshStandardMaterial } = THREE;
 const glassPalettes = [
@@ -21,6 +22,8 @@ function facadeMaterial(style) {
   if (facadeMaterials[style]) return facadeMaterials[style];
   const [base, frame, lights, cols, rows, activity] = glassPalettes[style];
   const concrete = style === 0 || style === 3 || style === 4;
+  const inset=style===0?.24:style===1?.064:.15;
+  const widthRepeat=style===1?29:38, heightRepeat=style===4?37:29;
   const sample = style===3 ? 2 : concrete ? 0 : 1;
   const makeMap = channel => {
     const emission=channel==='emission';
@@ -42,6 +45,8 @@ function facadeMaterial(style) {
       for (let row=0;row<rows;row++) {
         const y=row*h;
         const slab=concrete?.29:row%4===2?.21:.115;
+        const floorUse=random();
+        const floorActivity=activity*(floorUse<.30?.25:floorUse>.73?1.65:1.0);
         if (!emission && !rough) {
           ctx.fillStyle=relief?'#acacac':frame+'42';
           ctx.fillRect(0,y,size,h*slab);
@@ -51,9 +56,8 @@ function facadeMaterial(style) {
           ctx.fillRect(0,y+1,size,1.8);
         }
         for (let col=0;col<cols;col++) {
-          const x=col*w,active=random()<activity,glow=lights[Math.floor(random()*lights.length)];
-          const blinds=random(),shade=random();
-          const inset=style===0?.24:style===1?.064:.15;
+          const x=col*w,active=random()<floorActivity,glow=lights[Math.floor(random()*lights.length)];
+          const shade=random();
           const open=w*(1-inset*2),left=x+w*inset;
           const top=y+h*slab+h*.056,tall=h*(.83-slab);
           if (!emission && !rough) {
@@ -73,17 +77,16 @@ function facadeMaterial(style) {
           if (relief || rough) ctx.fillStyle=relief?'#303030':shade>.7?'#5a5a5a':'#353535';
           else {
             const pane=ctx.createLinearGradient(0,top,0,top+tall);
-            pane.addColorStop(0,emission?glow:active?'#7e877b':'#394751');
-            pane.addColorStop(.52,emission?glow:active?'#58625b':'#19282d');
-            pane.addColorStop(1,emission?'#292420':'#0b1319');
+            pane.addColorStop(0,emission?glow:active?'#475459':'#334557');
+            pane.addColorStop(.52,emission?glow:active?'#364642':'#19282e');
+            pane.addColorStop(1,emission?'#19150f':'#080e16');
             ctx.fillStyle=pane;
           }
+          if (emission) ctx.globalAlpha=.57+shade*.43;
           ctx.fillRect(left,top,open,tall);
+          ctx.globalAlpha=1;
           ctx.fillStyle=relief?'#9a9a9a':rough?'#929292':emission?'#17100a9e':frame;
           ctx.fillRect(x+w*.51,top,Math.max(1.3,w*.045),tall);
-          if (blinds<.44 && !rough) {
-            for (let i=0;i<4;i++) ctx.fillRect(left,top+1+i*tall/7,open,1.08);
-          }
           if (!emission && !relief && !rough && shade>.62) {
             ctx.fillStyle='#121c21a0';
             ctx.fillRect(left+open*.73,top,open*.24,tall);
@@ -101,9 +104,11 @@ function facadeMaterial(style) {
   };
   const material = new MeshStandardMaterial({
     map:makeMap('color'), emissiveMap:makeMap('emission'), bumpMap:makeMap('height'), roughnessMap:makeMap('roughness'),
-    emissive:'#ffffff', emissiveIntensity:.87, bumpScale:concrete?.075:.044, roughness:1,
+    emissive:'#ffffff', emissiveIntensity:.68, bumpScale:concrete?.075:.044, roughness:1,
     metalness:concrete?.07:.32,
   });
+  addWindowInteriors(material,new THREE.Vector4(cols,rows,widthRepeat/cols,heightRepeat/rows),
+    new THREE.Vector3(Number(concrete),inset,(style+1)*31.7));
   facadeMaterials[style] = material;
   return material;
 }
@@ -152,7 +157,8 @@ function addFacades(scene, slices) {
       const upper = profile(topX,topZ,topW,topD,bevel,sides,phase+twist).map(([x,z])=>turn(x,z,building));
       const [roofX,roofZ] = turn(topX,topZ,building);
       const low = base, top = base + h;
-      const v = h / (style === 4 ? 37 : 29), v0 = windowOffset * 3.3;
+      const rise = style === 4 ? 37 : 29;
+      const v = h / rise, v0 = windowOffset * 3.3 + base / rise;
       for (let i = 0; i < lower.length; i++) {
         const j = (i + 1) % lower.length;
         const [ax, az] = lower[i], [bx, bz] = lower[j], [cx, cz] = upper[j], [dx, dz] = upper[i];
@@ -161,8 +167,10 @@ function addFacades(scene, slices) {
         vertices.push(ax,low,az, bx,low,bz, dx,top,dz, bx,low,bz, cx,top,cz, dx,top,dz);
         uv.push(u0,v0, u0+u,v0, u0,v0+v, u0+u,v0, u0+u,v0+v, u0,v0+v);
         roofs.push(roofX,top,roofZ, dx,top,dz, cx,top,cz);
+        const facing=(az-bz)*Math.sin(building.yaw??0)+(bx-ax)*Math.cos(building.yaw??0);
         if (low<169) detailFaces.push({
           ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,concrete,style,index:i,
+          storefront:building.frontage ? building.retail && facing>Math.hypot(bx-ax,bz-az)*.67 : undefined,
           b:{ h:building.h,type:building.type,seed:(Math.imul(Math.round(building.x*23),0x45d9f3b)
             ^ Math.imul(Math.round(building.z*31),0x119de1f3)) >>> 0 },
         });
@@ -213,12 +221,13 @@ export function towers(scene, buildings, local = false) {
     const lit = lights[b.style];
     const limits=parts.map(items=>items.length);
     const levels = [];
+    const windowOffset = random()*13;
     const segment = (from, to, w, d, options = {}) => {
       const { topW=w, topD=d, lean=0, shift=0, bevel=0, sides=0, phase=0, twist=0 }=options;
       const x = b.x + shift * b.w, z = b.z;
       const form = { x, z, w: w * b.w, d: d * b.d, base: from * b.h, h: (to - from) * b.h,
         topW: topW * b.w, topD: topD * b.d, topX: x + lean * b.w, topZ: z,
-        bevel, sides, phase, twist, building: b, windowOffset: random() };
+        bevel, sides, phase, twist, building: b, windowOffset };
       slices[b.style].push(form);
       levels.push(form);
       return form;
