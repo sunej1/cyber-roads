@@ -1,4 +1,5 @@
 import { CatmullRomCurve3, Vector3, MathUtils } from 'three';
+import { closestSpine, coreEdge, makeDeparture, spinePoint } from './extent.js';
 
 export const districts = [
   { name: 'Harbor Approach', description: 'South breakwater', point: 0, color: '#65eddf' },
@@ -23,7 +24,10 @@ export const length = route.getLength();
 export const routeSamples = route.getSpacedPoints(440).slice(0, -1);
 export const park = { x: 10, z: 105, w: 228, d: 174 };
 export const plaza = { x: -220, z: 355, w: 142, d: 135 };
-export const bounds = { minX: -1550, maxX: 1600, minZ: -1370, maxZ: 1540 };
+export const harborExit = .934;
+export const departure = makeDeparture(route, harborExit);
+const departureLength = departure.getLength();
+const departureSamples = departure.getSpacedPoints(94);
 
 export const shore = [
   [-1080, 560], [-1040, 100], [-980, -490], [-718, -805], [-440, -995],
@@ -41,10 +45,10 @@ function isOnLand(x, z) {
   return inside;
 }
 
-export function nearestRoute(position) {
+export function nearestRoute(position, through = 1) {
   let best = Infinity;
   let index = 0;
-  for (let i = 0; i < routeSamples.length; i++) {
+  for (let i = 0; i < Math.min(routeSamples.length,1+Math.floor(through*routeSamples.length)); i++) {
     const point = routeSamples[i];
     const distance = (point.x - position.x) ** 2 + (point.z - position.z) ** 2;
     if (distance < best) {
@@ -76,7 +80,6 @@ export function randomFor(seed) {
 
 const forward = new Vector3();
 const trial = new Vector3();
-const wrap = MathUtils.euclideanModulo;
 const damp = MathUtils.damp;
 const angleTo = (current, target) => Math.atan2(Math.sin(target - current), Math.cos(target - current));
 const heading = direction => Math.atan2(direction.x, -direction.z);
@@ -85,6 +88,8 @@ export function newFlight(station = 0) {
   return {
     position: route.getPointAt(station),
     station,
+    transfer: null,
+    spine: null,
     yaw: heading(route.getTangentAt(station)),
     speed: 0,
     lift: 0,
@@ -95,18 +100,60 @@ export function newFlight(station = 0) {
   };
 }
 
+export function nearestGuideFlight(position) {
+  const flight = newFlight(nearestRoute(position,harborExit));
+  let nearestDistance = Math.hypot(flight.position.x - position.x, flight.position.z - position.z);
+  departureSamples.forEach((point, index) => {
+    const distance = Math.hypot(point.x - position.x, point.z - position.z);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      flight.transfer = index / (departureSamples.length - 1) * departureLength;
+      flight.position.copy(point);
+      flight.yaw = heading(departure.getTangentAt(flight.transfer / departureLength));
+    }
+  });
+  if (Math.max(Math.abs(position.x), Math.abs(position.z)) >= coreEdge) {
+    const track = closestSpine(position.x, position.z);
+    const direction = position.z < 0 ? -1 : 1;
+    const point = spinePoint(track, position.z);
+    if (Math.hypot(point.x - position.x, point.z - position.z) <= nearestDistance) {
+      flight.transfer = null;
+      flight.spine = { track, direction };
+      flight.position.copy(point);
+      flight.yaw = heading(spinePoint(track, point.z + direction).sub(point));
+    }
+  }
+  return flight;
+}
+
 export function advanceFlight(flight, input, guided, dt, buildings) {
   flight.warning = Math.max(0, flight.warning - dt);
   if (guided) {
     flight.speed = damp(flight.speed, 53 + 8 * flight.position.y / 225, 1.15, dt);
-    flight.station = wrap(flight.station + flight.speed * dt / length, 1);
-    route.getPointAt(flight.station, flight.position);
-    route.getTangentAt(flight.station, forward);
+    const step = flight.speed * dt;
+    if (flight.spine) {
+      const { track, direction } = flight.spine;
+      const z = flight.position.z;
+      spinePoint(track, z + direction, forward).sub(flight.position);
+      spinePoint(track, z + direction * step / forward.length(), flight.position);
+      forward.normalize();
+    } else if (flight.transfer !== null || flight.station + step / length >= harborExit) {
+      flight.transfer = flight.transfer === null ? (flight.station + step / length - harborExit) * length : flight.transfer + step;
+      flight.station = harborExit;
+      const u = Math.min(1, flight.transfer / departureLength);
+      departure.getPointAt(u, flight.position);
+      departure.getTangentAt(u, forward);
+      if (u === 1) flight.spine = { track: 0, direction: 1 };
+    } else {
+      flight.station += step / length;
+      route.getPointAt(flight.station, flight.position);
+      route.getTangentAt(flight.station, forward);
+    }
     const turn = angleTo(flight.yaw, heading(forward));
     flight.yaw += turn * (1 - Math.exp(-6 * dt));
     flight.bank = damp(flight.bank, -MathUtils.clamp(turn * 1.6, -0.4, 0.4), 4, dt);
     flight.pitch = damp(flight.pitch, -forward.y * 0.9, 4, dt);
-    flight.distance += flight.speed * dt;
+    flight.distance += step;
     return;
   }
 
@@ -127,9 +174,8 @@ export function advanceFlight(flight, input, guided, dt, buildings) {
     MathUtils.clamp(flight.position.y + flight.lift * dt, 22, 430),
     flight.position.z - Math.cos(flight.yaw) * flight.speed * dt,
   );
-  const inside = trial.x > bounds.minX && trial.x < bounds.maxX && trial.z > bounds.minZ && trial.z < bounds.maxZ;
   // shortcut: Tower bounds cover the full footprint and roof slab; rooftop obstacle flying would need individual mast and crown bounds.
-  if (!inside || buildings.some(building => intersectsBuilding(trial, building, 5))) {
+  if (buildings.some(building => intersectsBuilding(trial, building, 5))) {
     flight.speed = 0;
     flight.lift = 0;
     flight.warning = 2.2;
@@ -153,20 +199,20 @@ export function generateBuildings() {
   };
 
   const landmarks = [
-    { x: -132, z: 803, w: 71, d: 56, h: 158, type: 3, sign: 'NOCTURNE', style: 2 },
-    { x: -339, z: 818, w: 72, d: 58, h: 121, type: 2, sign: 'PORT / 01', style: 1 },
-    { x: -366, z: 628, w: 85, d: 78, h: 164, type: 1, sign: 'KAIROS', style: 2 },
-    { x: -84, z: 597, w: 79, d: 84, h: 188, type: 2, sign: 'NOVA', style: 1 },
-    { x: -358, z: 393, w: 76, d: 82, h: 183, type: 1, sign: 'LANTERN', style: 2 },
-    { x: -99, z: 397, w: 72, d: 80, h: 232, type: 3, sign: 'SABLE', style: 2 },
+    { x: -132, z: 803, w: 71, d: 56, h: 158, type: 7, sign: 'NOCTURNE', style: 2 },
+    { x: -339, z: 818, w: 72, d: 58, h: 121, type: 6, sign: 'PORT / 01', style: 3 },
+    { x: -366, z: 628, w: 85, d: 78, h: 164, type: 5, sign: 'KAIROS', style: 4 },
+    { x: -84, z: 597, w: 79, d: 84, h: 188, type: 6, sign: 'NOVA', style: 1 },
+    { x: -358, z: 393, w: 76, d: 82, h: 183, type: 7, sign: 'LANTERN', style: 4 },
+    { x: -99, z: 397, w: 72, d: 80, h: 232, type: 5, sign: 'SABLE', style: 0 },
     { x: 77, z: 469, w: 87, d: 79, h: 211, type: 2, sign: 'OYAMA', style: 1 },
-    { x: 263, z: 271, w: 91, d: 68, h: 283, type: 1, sign: 'MERIDIAN', style: 1 },
+    { x: 263, z: 271, w: 91, d: 68, h: 283, type: 4, sign: 'MERIDIAN', style: 1 },
     { x: 345, z: 176, w: 60, d: 53, h: 214, type: 2, style: 2 },
-    { x: -386, z: 74, w: 95, d: 81, h: 213, type: 3, sign: 'ORBIT', style: 1 },
-    { x: 32, z: -179, w: 74, d: 79, h: 173, type: 2, sign: 'VERDANT', style: 2 },
-    { x: 409, z: -302, w: 78, d: 66, h: 219, type: 1, sign: 'CROWN', style: 2 },
+    { x: -386, z: 74, w: 95, d: 81, h: 213, type: 4, sign: 'ORBIT', style: 1 },
+    { x: 32, z: -179, w: 74, d: 79, h: 173, type: 7, sign: 'VERDANT', style: 5 },
+    { x: 409, z: -302, w: 78, d: 66, h: 219, type: 5, sign: 'CROWN', style: 0 },
     { x: 568, z: -432, w: 80, d: 73, h: 204, type: 3, style: 1 },
-    { x: 689, z: 516, w: 79, d: 81, h: 127, type: 3, sign: 'TIDELINE', style: 1 },
+    { x: 689, z: 516, w: 79, d: 81, h: 127, type: 6, sign: 'TIDELINE', style: 5 },
   ];
   landmarks.forEach(add);
 
@@ -180,8 +226,8 @@ export function generateBuildings() {
       const w = 55 + random() * 47;
       const d = 49 + random() * 51;
       const h = 27 + 159 * (1 - Math.min(0.94, density)) + random() ** 1.25 * 103;
-      const type = Math.floor(random() * 4);
-      const style = Math.floor(random() * 4);
+      const type = Math.floor(random() * 8);
+      const style = Math.floor(random() * 6);
       if (landmarks.some(tower => Math.abs(tower.x - x) < (w + tower.w) / 2 + 19
         && Math.abs(tower.z - z) < (d + tower.d) / 2 + 19)) continue;
       add({ x, z, w, d, h, type, style });
@@ -191,14 +237,15 @@ export function generateBuildings() {
     for (let column = -6; column <= 5; column++) {
       const x = column * 136, z = row * 125;
       if (Math.hypot((x + 95) / 965, (z - 35) / 920) > 1) continue;
-      if (buildings.some(b => Math.abs(b.x - x) < b.w / 2 + 53
-        && Math.abs(b.z - z) < b.d / 2 + 43)) continue;
-      for (const side of [-1, 1]) {
-        add({
-          x: x + side * 30, z: z + (random() - .5) * 16,
-          w: 37 + random() * 12, d: 29 + random() * 15, h: 8 + random() * 7,
-          type: 0, style: (row + column + (side === 1 ? 1 : 0) + 20) % 4,
-        });
+      for (const [dx, dz] of [[-35,-31],[34,-32],[-35,32],[33,32],[0,0]]) {
+        const footprint = {
+          x: x + dx + (random() - .5) * 7, z: z + dz + (random() - .5) * 8,
+          w: 20 + random() * 20, d: 19 + random() * 21, h: 8 + random() ** 1.6 * 45,
+          type: Math.floor(random() * 3), style: Math.floor(random() * 6),
+        };
+        if (buildings.some(b => Math.abs(b.x - footprint.x) < (b.w + footprint.w) / 2 + 5
+          && Math.abs(b.z - footprint.z) < (b.d + footprint.d) / 2 + 5)) continue;
+        add(footprint);
       }
     }
   }

@@ -5,7 +5,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { createCity } from './city.js';
 import { createCraft } from './craft.js';
-import { advanceFlight, districtAt, districts, length, nearestRoute, newFlight, park, plaza, route, routeSamples, shore } from './flight.js';
+import { advanceFlight, departure, districtAt, districts, harborExit, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route, routeSamples, shore } from './flight.js';
+import { closestSpine, coreTile, districtFor, spinePoint, tileAt, tileSize } from './extent.js';
+import { blockSize } from './world.js';
 import './style.css';
 
 const element = id => document.getElementById(id);
@@ -26,9 +28,9 @@ const mapContext = map.getContext('2d');
 const mapBase = document.createElement('canvas');
 mapBase.width = map.width;
 mapBase.height = map.height;
-const mapScale = .089;
+const mapScale = .073;
 const mapX = x => 230 + x * mapScale;
-const mapY = z => 119 + z * mapScale;
+const mapY = z => 99 + z * mapScale;
 
 const circuit = [];
 for (const district of districts) {
@@ -42,7 +44,7 @@ for (const district of districts) {
   element('districts').append(item);
   circuit.push(item);
 }
-element('route-length').textContent = `${(length / 1000).toFixed(1)} km loop`;
+element('route-length').textContent = 'Outbound tour';
 
 function drawMapBase() {
   const ctx = mapBase.getContext('2d');
@@ -76,8 +78,8 @@ function drawMapBase() {
   for (const { x, z, w, d } of [park, plaza]) ctx.fillRect(mapX(x - w / 2), mapY(z - d / 2), w * mapScale, d * mapScale);
   ctx.restore();
   ctx.beginPath();
-  routeSamples.forEach(({ x, z }, i) => i === 0 ? ctx.moveTo(mapX(x), mapY(z)) : ctx.lineTo(mapX(x), mapY(z)));
-  ctx.closePath();
+  const openingRoute = routeSamples.slice(0,Math.floor(harborExit*routeSamples.length)+1).concat(departure.getSpacedPoints(35));
+  openingRoute.forEach(({ x, z }, i) => i === 0 ? ctx.moveTo(mapX(x), mapY(z)) : ctx.lineTo(mapX(x), mapY(z)));
   ctx.lineWidth = 4.8;
   ctx.strokeStyle = '#122429';
   ctx.stroke();
@@ -115,6 +117,7 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const desiredCamera = new THREE.Vector3();
 const desiredTarget = new THREE.Vector3();
 const target = new THREE.Vector3();
+const origin = new THREE.Vector3();
 const pace = 1 / 120;
 let renderer, scene, camera, composer, city, craft;
 let status = 'ready';
@@ -151,7 +154,7 @@ function setStatus(value) {
   tourButton.firstElementChild.textContent = paused && guided ? 'Resume guided flight' : 'Start guided flight';
   manualButton.firstElementChild.textContent = paused && !guided ? 'Resume manual flight' : 'Fly manually';
   element('launch-title').innerHTML = paused ? 'FLIGHT<span> PAUSED</span>' : 'AFTER<span>HOUR</span>';
-  element('menu-copy').textContent = paused ? 'Resume from your current position or restart at the harbor.' : 'Thread the towers, skim the gardens, and follow the coast into open sky.';
+  element('menu-copy').textContent = paused ? 'Resume from your current position or restart at the harbor.' : 'Fly through Meridian City, then follow the air lanes into new districts.';
   element('state').textContent = paused ? 'Flight paused' : flying ? (guided ? 'Guided flight' : 'Manual flight') : 'System ready';
   modeButton.lastChild.textContent = guided ? ' Take control' : ' Join guided flight';
   recoverButton.hidden = guided;
@@ -164,7 +167,7 @@ function setStatus(value) {
 
 function returnToRoute() {
   const distance = flight.distance;
-  flight = newFlight(nearestRoute(flight.position));
+  flight = nearestGuideFlight(flight.position);
   flight.distance = distance;
   snapCamera = true;
   nextHud = 0;
@@ -250,11 +253,53 @@ canvas.addEventListener('pointermove', event => {
 });
 canvas.addEventListener('lostpointercapture', () => { lookTouch = undefined; });
 
-function updateMap() {
+const radarPoint = new THREE.Vector3();
+const causeway = { name: 'South Causeway', description: 'Outbound air lanes' };
+
+function drawLocalRadar(ctx, position, district) {
+  const scale = .27;
+  const xAt = x => map.width / 2 + (x-position.x)*scale;
+  const zAt = z => map.height / 2 + (z-position.z)*scale;
+  ctx.fillStyle = '#192729';
+  ctx.fillRect(0,0,map.width,map.height);
+  const col = tileAt(position.x), row = tileAt(position.z);
+  for (let r = row-2; r <= row+2; r++) for (let c = col-2; c <= col+2; c++) {
+    if (coreTile(c,r)) continue;
+    const x = c*tileSize-tileSize/2, z = r*tileSize-tileSize/2;
+    const style = districtFor(c,r).style;
+    ctx.fillStyle = style === 5 ? '#293f43' : style === 3 ? '#37362a' : '#30413e';
+    ctx.fillRect(xAt(x)+1,zAt(z)+1,tileSize*scale-2,tileSize*scale-2);
+    ctx.strokeStyle = '#8c9f8a55';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const at = i*blockSize;
+      ctx.moveTo(xAt(x+at),zAt(z)); ctx.lineTo(xAt(x+at),zAt(z+tileSize));
+      ctx.moveTo(xAt(x),zAt(z+at)); ctx.lineTo(xAt(x+tileSize),zAt(z+at));
+    }
+    ctx.stroke();
+  }
+  const track = flight.spine?.track ?? closestSpine(position.x,position.z);
+  ctx.strokeStyle = district.color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i=-520; i<=520; i+=26) {
+    spinePoint(track,position.z+i,radarPoint);
+    if (i===-520) ctx.moveTo(xAt(radarPoint.x),zAt(radarPoint.z));
+    else ctx.lineTo(xAt(radarPoint.x),zAt(radarPoint.z));
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#c3cdbf';
+  ctx.font = '15px monospace';
+  ctx.fillText('N',map.width-25,23);
+}
+
+function updateMap(localDistrict) {
   const ctx = mapContext;
-  ctx.drawImage(mapBase, 0, 0);
+  if (localDistrict) drawLocalRadar(ctx,flight.position,localDistrict);
+  else ctx.drawImage(mapBase,0,0);
   ctx.save();
-  ctx.translate(mapX(flight.position.x), mapY(flight.position.z));
+  ctx.translate(localDistrict ? map.width/2 : mapX(flight.position.x),localDistrict ? map.height/2 : mapY(flight.position.z));
   ctx.rotate(flight.yaw);
   ctx.beginPath();
   ctx.moveTo(0, -9); ctx.lineTo(5.7, 6); ctx.lineTo(0, 3.2); ctx.lineTo(-5.7, 6); ctx.closePath();
@@ -267,10 +312,18 @@ function updateMap() {
 }
 
 function updateHud() {
-  const station = guided ? flight.station : nearestRoute(flight.position);
-  const point = route.getPointAt(station);
-  const offRoute = !guided && Math.hypot(flight.position.x - point.x, flight.position.z - point.z) > 165;
-  const district = offRoute ? null : districtAt(station);
+  const { position } = flight;
+  const col = tileAt(position.x), row = tileAt(position.z);
+  const localDistrict = coreTile(col,row) ? null : districtFor(col,row);
+  let district = localDistrict;
+  if (!district) {
+    if (guided) district = flight.transfer === null ? districtAt(flight.station) : causeway;
+    else {
+      const station = nearestRoute(position);
+      const point = route.getPointAt(station);
+      district = Math.hypot(position.x-point.x,position.z-point.z) < 165 ? districtAt(station) : null;
+    }
+  }
   if (district !== displayedDistrict || !element('route-progress').dataset.drawn) {
     displayedDistrict = district;
     const name = district?.name ?? 'Off route';
@@ -283,6 +336,8 @@ function updateHud() {
       else item.removeAttribute('aria-current');
     });
   }
+  element('route-length').textContent = localDistrict ? 'Local radar' : 'Outbound tour';
+  map.setAttribute('aria-label',localDistrict ? 'Local district flight radar' : 'Map of the Meridian City outbound route');
   element('speed').textContent = String(Math.round(flight.speed * 3.6)).padStart(3, '0');
   element('altitude').textContent = String(Math.round(flight.position.y)).padStart(3, '0');
   const warning = flight.warning > 0;
@@ -290,7 +345,7 @@ function updateHud() {
     element('warning').hidden = !warning;
     displayedWarning = warning;
   }
-  updateMap();
+  updateMap(localDistrict);
 }
 
 function resize() {
@@ -316,23 +371,23 @@ function updateCamera(dt) {
   const distance = noseCamera ? -6.6 : (opening ? 26 : 24) + flight.speed * .11;
   const centerHeading = Math.atan2(-flight.position.x, flight.position.z);
   const centerAngle = THREE.MathUtils.euclideanModulo(centerHeading - heading, Math.PI * 2);
-  const offshore = guided && !noseCamera
-    ? THREE.MathUtils.smoothstep(flight.station, .326, .445) * (1 - THREE.MathUtils.smoothstep(flight.station, .918, .996))
+  const offshore = guided && !noseCamera && flight.transfer === null && !flight.spine
+    ? THREE.MathUtils.smoothstep(flight.station, .326, .445) * (1 - THREE.MathUtils.smoothstep(flight.station, .875, harborExit))
     : 0;
   const panorama = opening ? .62 : offshore * centerAngle;
   const orbit = heading + lookYaw + panorama;
   const orbitHeight = Math.max(1, eyeHeight + lookPitch * 28);
   desiredCamera.set(
-    flight.position.x - Math.sin(orbit) * distance,
+    flight.position.x - origin.x - Math.sin(orbit) * distance,
     Math.max(7, flight.position.y + orbitHeight),
-    flight.position.z + Math.cos(orbit) * distance,
+    flight.position.z - origin.z + Math.cos(orbit) * distance,
   );
   const ahead = noseCamera ? 53 : (opening ? 24 : 25) + flight.speed * .22;
   const lookDirection = noseCamera ? heading + lookYaw : heading + lookYaw * .22 + panorama;
   desiredTarget.set(
-    flight.position.x + Math.sin(lookDirection) * ahead,
+    flight.position.x - origin.x + Math.sin(lookDirection) * ahead,
     flight.position.y + (noseCamera ? 2 + lookPitch * 28 : -2 + lookPitch * 6),
-    flight.position.z - Math.cos(lookDirection) * ahead,
+    flight.position.z - origin.z - Math.cos(lookDirection) * ahead,
   );
 
   if (snapCamera) {
@@ -357,7 +412,6 @@ function frame(now) {
   const dt = last === 0 ? 0 : Math.min(.05, (now - last) / 1000);
   last = now;
   if (!(reduceMotion.matches && status !== 'flying')) time += dt;
-  city.update(time);
   if (status === 'flying') {
     inputs.clear();
     for (const code of pressed) inputs.add(keyMap.get(code));
@@ -368,12 +422,21 @@ function frame(now) {
       accumulator -= pace;
     }
   }
+  const cellX = tileAt(flight.position.x)*tileSize, cellZ = tileAt(flight.position.z)*tileSize;
+  camera.position.x += origin.x-cellX;
+  camera.position.z += origin.z-cellZ;
+  target.x += origin.x-cellX;
+  target.z += origin.z-cellZ;
+  origin.set(cellX,0,cellZ);
+  city.update(time,flight.position,origin);
+
   if (now >= nextHud) {
     nextHud = now + 90;
     updateHud();
   }
   craft.group.visible = !noseCamera;
   craft.update(flight, time, !guided && inputs.has('boost') && inputs.has('throttle'));
+  craft.group.position.sub(origin);
   updateCamera(dt);
   composer.render();
 }
@@ -384,12 +447,12 @@ function boot() {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.17;
     scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2('#7a516c', .00062);
+    scene.fog = new THREE.FogExp2('#525b55', .00059);
     camera = new THREE.PerspectiveCamera(61, 1, .25, 7400);
-    const fill = new THREE.HemisphereLight('#bbc5ff', '#533956', 2.11);
-    const rim = new THREE.DirectionalLight('#ffc1ad', 2.6);
+    const fill = new THREE.HemisphereLight('#b3ced1', '#544637', 1.48);
+    const rim = new THREE.DirectionalLight('#efc89f', 1.69);
     rim.position.set(-3, 5, -6);
-    const front = new THREE.DirectionalLight('#79cffd', .86);
+    const front = new THREE.DirectionalLight('#8bbebd', .74);
     front.position.set(4, 2.4, 7);
     scene.add(fill, rim, front);
     city = createCity(scene);
@@ -397,7 +460,7 @@ function boot() {
 
     composer = new EffectComposer(renderer);
     const render = new RenderPass(scene, camera);
-    const bloom = new UnrealBloomPass(new THREE.Vector2(), .55, .59, .87);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(), .56, .52, .84);
     composer.addPass(render);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());

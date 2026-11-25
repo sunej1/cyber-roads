@@ -2,7 +2,7 @@
 
 Fly a hovercar through Meridian City in your browser. [Play Afterhour](https://sunej1.github.io/cyber-roads/).
 
-The 5.5 km guided loop enters from the south harbor, passes between downtown towers, crosses a civic square and park, climbs to Crown Heights, and returns offshore. The tour takes about 95 seconds per lap. Take the controls any time to explore at your own pace.
+The guided flight enters from the south harbor, passes between downtown towers, crosses a civic square and park, climbs to Crown Heights, and sweeps offshore. It then leaves Meridian City on a causeway into a city that keeps generating new districts. Take the controls any time to explore in any direction. Hover taxis, air shuttles, street cars, and pedestrians follow their own routes.
 
 | Control | Action |
 | --- | --- |
@@ -20,7 +20,7 @@ Touch devices have on-screen flight controls. The 3D view requires a browser wit
 
 ## Develop locally
 
-Use Node.js 22.12 or later. The game uses Vite, Three.js, and WebGL 2. The buildings, landscape, and vehicle are generated in code. The guided flight follows an arc-length-sampled 3D spline, with clearance checked against the building footprints.
+Use Node.js 22.12 or later. The game uses Vite, Three.js, and WebGL 2. The buildings, landscape, and vehicle are generated in code. The opening tour follows an arc-length-sampled 3D spline. Beyond the harbor, deterministic 640 m tiles stream around the player, and buildings leave clearance along the outbound air lanes.
 
 ```sh
 npm ci

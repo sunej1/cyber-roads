@@ -1,5 +1,10 @@
 import * as THREE from 'three';
-import { generateBuildings, intersectsBuilding, park, plaza, randomFor, shore } from './flight.js';
+import billboardAtlasUrl from './assets/billboards.jpg';
+import { generateBuildings, park, plaza, randomFor, shore } from './flight.js';
+import { airCircuits, streetRuns, streets as streetGrid } from './traffic.js';
+import { addMovingTraffic } from './street-life.js';
+import { coreTile, tileAt, tileSize } from './extent.js';
+import { blockSize, generateTile, localTraffic } from './world.js';
 
 const { BoxGeometry, Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial } = THREE;
 const box = new BoxGeometry();
@@ -17,45 +22,62 @@ function texture(width, height, paint) {
 }
 
 const glassPalettes = [
-  ['#141a2c', '#26283a', ['#ffe0a0', '#cb9870', '#7298b0', '#ebe1c5']],
-  ['#121d2d', '#26364c', ['#83e7ee', '#5d9dc3', '#e1f1e9', '#e5bd8a']],
-  ['#21172b', '#38283e', ['#fd83ba', '#bc6197', '#b88bc9', '#ffd69d']],
-  ['#201c28', '#322c3b', ['#f1c484', '#cc8e69', '#a7b6a7', '#d6c5f2']],
+  ['#343b3d', '#515650', ['#ffd99b', '#d9b88d', '#92a6a4'], 12, 7, .23],
+  ['#182a32', '#35505a', ['#aceaee', '#6fa6b9', '#d0e2d7'], 8, 11, .37],
+  ['#292125', '#654143', ['#ff9192', '#f4ba8c', '#e0b6a4'], 6, 9, .32],
+  ['#2d2a25', '#4c4a3c', ['#f8b468', '#b89b60', '#ddd0a3'], 6, 6, .32],
+  ['#292d32', '#6a6560', ['#ffd37d', '#e4ddd0', '#91afb3'], 14, 10, .26],
+  ['#222e31', '#415048', ['#b7cb7a', '#b2dbaa', '#e3e9b1'], 5, 10, .36],
 ];
+const facadeMaterials = [];
+const towerTime = { value: 0 };
 
-function facadeTexture(style) {
+function facadeMaterial(style) {
+  if (facadeMaterials[style]) return facadeMaterials[style];
   const random = randomFor(900 + style);
-  const [base, frame, lights] = glassPalettes[style];
-  const map = texture(256, 256, ctx => {
+  const [base, frame, lights, cols, rows, activity] = glassPalettes[style];
+  const map = texture(512, 512, ctx => {
     ctx.fillStyle = base;
-    ctx.fillRect(0, 0, 256, 256);
-    for (let row = 0; row < 8; row++) {
-      const y = row * 32;
+    ctx.fillRect(0, 0, 512, 512);
+    const w = 512 / cols, h = 512 / rows;
+    for (let row = 0; row < rows; row++) {
+      const y = row * h;
+      const band = style === 4 || style === 0 ? .26 : row % 4 === 2 ? .17 : .09;
       ctx.fillStyle = frame;
-      ctx.fillRect(0, y, 256, 3);
-      ctx.fillStyle = '#111322';
-      ctx.fillRect(0, y + 27, 256, 4);
-      for (let col = 0; col < 8; col++) {
-        const x = col * 32;
+      ctx.fillRect(0, y, 512, h * band);
+      ctx.fillStyle = '#060a10a0';
+      ctx.fillRect(0, y + h * .94, 512, h * .06);
+      for (let col = 0; col < cols; col++) {
+        const x = col * w;
+        const active = random() < activity;
+        const light = lights[Math.floor(random() * lights.length)];
         ctx.fillStyle = frame;
-        ctx.fillRect(x + 2, y + 5, 2, 21);
-        const pane = ctx.createLinearGradient(x + 6, y + 6, x + 6, y + 26);
-        if (random() < 0.33) {
-          pane.addColorStop(0, lights[Math.floor(random() * lights.length)]);
-          pane.addColorStop(1, base);
-        } else {
-          pane.addColorStop(0, frame);
-          pane.addColorStop(1, '#101424');
-        }
+        ctx.fillRect(x + 1, y + h * band, style === 3 ? w * .17 : Math.max(1.7, w * .045), h * (1 - band));
+        const inset = style === 0 ? .24 : style === 1 || style === 5 ? .06 : .14;
+        const top = y + h * (band + .075), panel = h * (style === 1 ? .78 : .66) - h * band;
+        const pane = ctx.createLinearGradient(x, top, x + w * .15, top + panel);
+        pane.addColorStop(0, active ? light : frame);
+        pane.addColorStop(active ? .64 : .36, active ? light : base);
+        pane.addColorStop(1, active ? base : '#0e151b');
         ctx.fillStyle = pane;
-        ctx.fillRect(x + 6, y + 6, 21, 19);
-        ctx.fillStyle = '#110e1a8a';
-        ctx.fillRect(x + 15, y + 6, 1, 19);
+        ctx.fillRect(x + w * inset, top, w * (1 - 2 * inset), panel);
+        if (!active || random() < .48) {
+          ctx.fillStyle = active ? '#171c26a8' : '#141719a0';
+          ctx.fillRect(x + w * .54, top + 1, Math.max(1, w * .04), panel);
+        }
+        if (active && random() < .48) {
+          ctx.fillStyle = '#3e3b27af';
+          for (let line = 0; line < 4; line++) ctx.fillRect(x + w * inset, top + line * panel / 5, w * (1 - 2 * inset), .8);
+        }
       }
     }
+    ctx.fillStyle = '#ced4ce12';
+    for (let i = 0; i < 1800; i++) ctx.fillRect(random() * 512, random() * 512, random() * 9, 1);
   });
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  return map;
+  const material = new MeshBasicMaterial({ map });
+  facadeMaterials[style] = material;
+  return material;
 }
 
 function batch(parent, geometry, material, items) {
@@ -72,6 +94,7 @@ function batch(parent, geometry, material, items) {
   });
   mesh.computeBoundingSphere();
   parent.add(mesh);
+  return mesh;
 }
 
 function shapeMesh(points, y, material) {
@@ -108,26 +131,20 @@ function sky(parent) {
       }
       void main() {
         vec3 d = normalize(direction);
-        vec3 sun = normalize(vec3(-0.5, -0.015, -1.0));
+        vec3 sun = normalize(vec3(-0.52, -0.11, -1.0));
         vec3 moon = normalize(vec3(0.14, 0.25, -1.0));
         float h = max(0.0, d.y);
         float sunset = pow(max(0.0,dot(d,sun)), 12.0) * exp(-h*7.0);
-        vec3 horizon = mix(vec3(.14,.071,.155), vec3(.64,.173,.104), sunset);
-        vec3 col = mix(horizon, vec3(.012,.016,.050), 1.0-exp(-h*5.5));
-        vec2 uv = vec2(atan(d.x, -d.z),h) * vec2(6,19);
-        float cloud = noise(uv) * .62 + noise(uv*2.46) * .27 + noise(uv*6.8) * .11;
-        float veil = smoothstep(.45,.76,cloud) * smoothstep(.009,.15,h) * exp(-h*1.5);
-        col = mix(col, vec3(.027,.025,.070) + sunset*vec3(.33,.082,.076), veil*.84);
-        float ribbons = noise(uv * vec2(.64,2.6) + vec2(8.1,1.9));
-        col += vec3(.14,.029,.048) * sunset * smoothstep(.46,.67,ribbons) * smoothstep(.015,.076,h);
-        float skyline = pow(max(0.0,dot(d, normalize(vec3(.28,-.01,-1.0)))),18.0);
-        col += vec3(.06,.026,.116) * skyline * exp(-h*9.0);
-        vec2 stars = vec2(atan(d.x,-d.z), h) * 320.0;
-        float speck = step(.993, hash(floor(stars))) * (1.0-smoothstep(.015,.095,length(fract(stars)-.5)));
-        col += speck * smoothstep(.12,.45,h) * (1.0-veil) * .42;
+        vec3 horizon = mix(vec3(.075,.085,.092), vec3(.235,.123,.062), sunset);
+        vec3 col = mix(horizon, vec3(.009,.020,.028), 1.0-exp(-h*5.0));
+        vec2 uv = vec2(d.x*5.6 + d.z*3.9, h*21.0 + d.z*3.7);
+        float cloud = noise(uv) * .49 + noise(uv*2.46) * .30 + noise(uv*6.8) * .15 + noise(uv*16.1) * .06;
+        float veil = smoothstep(.29,.75,cloud) * smoothstep(.007,.16,h);
+        col = mix(col, vec3(.012,.022,.027) + sunset*vec3(.09,.046,.020), veil*.88);
+        col += vec3(.032,.022,.015) * exp(-h*14.0) * noise(uv * vec2(.88,4.9));
         float m = length(d-moon);
-        col += vec3(.29,.38,.65) * exp(-m*31.0) * .34;
-        col += vec3(1.0,.80,.72) * (1.0-smoothstep(.015,.0167,m)) * (.85+.15*noise(d.xy*460.0));
+        col += vec3(.22,.27,.30) * exp(-m*18.0) * .31;
+        col += vec3(.68,.73,.69) * (1.0-smoothstep(.009,.0106,m)) * (1.0-veil*.76);
         gl_FragColor=vec4(col,1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -136,11 +153,12 @@ function sky(parent) {
   const dome = new Mesh(new THREE.SphereGeometry(4400, 32, 20), material);
   dome.renderOrder = -1;
   parent.add(dome);
+  return dome;
 }
 
 function water(parent) {
   const material = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
+    uniforms: { time: towerTime, worldOffset: { value: new THREE.Vector2() } },
     vertexShader: `
       varying vec3 worldPos;
       void main() {
@@ -150,9 +168,10 @@ function water(parent) {
       }`,
     fragmentShader: `
       uniform float time;
+      uniform vec2 worldOffset;
       varying vec3 worldPos;
       void main() {
-        vec2 p = worldPos.xz;
+        vec2 p = worldPos.xz + worldOffset;
         vec3 ray = normalize(worldPos - cameraPosition);
         float horizon = pow(1.0-abs(ray.y),7.0);
         float waves = sin(p.y*.123+p.x*.028+time*.85) * sin(p.y*.081-p.x*.019-time*.67);
@@ -160,12 +179,12 @@ function water(parent) {
           * sin(p.y*.23-p.x*.085+sin(p.y*.16)*1.4-time*.77);
         float ripples = max(0.0, waves*.66+chop*.34);
         float glow = pow(max(0.0,dot(normalize(vec2(-.5,-1.0)),normalize(ray.xz))), 22.0);
-        vec3 color = vec3(.014,.025,.048) + vec3(.056,.032,.070)*horizon;
-        color += (vec3(.016,.027,.040) + vec3(.29,.096,.067)*glow*horizon) * ripples;
+        vec3 color = vec3(.009,.016,.019) + vec3(.038,.045,.043)*horizon;
+        color += (vec3(.013,.024,.026) + vec3(.16,.102,.047)*glow*horizon) * ripples;
         float distanceToLand = min(abs(p.y-925.0),abs(p.x-730.0));
         float harbor = exp(-distanceToLand*.006) * exp(-dot(p/1550.0,p/1550.0));
         float ribbons = pow(max(0.0,sin(p.x*.08+p.y*.007+chop*.8)*sin(p.x*.15-waves*.8)), 3.0);
-        color += mix(vec3(.09,.029,.15),vec3(.027,.15,.18),.5+.5*sin(p.x*.018)) * harbor * ribbons * (.35+ripples);
+        color += mix(vec3(.22,.095,.034),vec3(.043,.11,.12),.5+.5*sin(p.x*.018)) * harbor * ribbons * (.35+ripples);
         gl_FragColor = vec4(color,1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -175,70 +194,100 @@ function water(parent) {
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = -3;
   parent.add(mesh);
-  return material.uniforms.time;
+  return mesh;
 }
 
+function profile(x, z, w, d, bevel) {
+  const x0 = x - w / 2, x1 = x + w / 2, z0 = z - d / 2, z1 = z + d / 2;
+  if (!bevel) return [[x0,z1],[x1,z1],[x1,z0],[x0,z0]];
+  const dx = w * bevel, dz = d * bevel;
+  return [[x0+dx,z1],[x1-dx,z1],[x1,z1-dz],[x1,z0+dz],[x1-dx,z0],[x0+dx,z0],[x0,z0+dz],[x0,z1-dz]];
+}
+
+const roof = new MeshStandardMaterial({ color: '#3c4140', roughness: .77, metalness: .23, side: THREE.DoubleSide });
 function addFacades(scene, slices) {
+  const roofs = [];
   glassPalettes.forEach((_, style) => {
     const vertices = [], uv = [];
-    const face = (a, b, c, d, u, v) => {
-      vertices.push(...a, ...b, ...d, ...b, ...c, ...d);
-      uv.push(0, 0, u, 0, 0, v, u, 0, u, v, 0, v);
-    };
-    for (const { x, z, w, d, base, h } of slices[style]) {
-      const left = x - w / 2 - 0.09, right = x + w / 2 + 0.09;
-      const front = z + d / 2 + 0.09, back = z - d / 2 - 0.09;
-      const low = base + 1.4, top = base + h - 1.25;
-      const u = w / 34, s = d / 34, v = (top - low) / 29;
-      face([left,low,front], [right,low,front], [right,top,front], [left,top,front], u, v);
-      face([right,low,back], [left,low,back], [left,top,back], [right,top,back], u, v);
-      face([right,low,front], [right,low,back], [right,top,back], [right,top,front], s, v);
-      face([left,low,back], [left,low,front], [left,top,front], [left,top,back], s, v);
+    for (const { x, z, w, d, base, h, topW, topD, topX, topZ, bevel, windowOffset } of slices[style]) {
+      const lower = profile(x, z, w, d, bevel);
+      const upper = profile(topX, topZ, topW, topD, bevel);
+      const low = base, top = base + h;
+      const v = h / (style === 4 ? 37 : 29), v0 = windowOffset * 3.3;
+      for (let i = 0; i < lower.length; i++) {
+        const j = (i + 1) % lower.length;
+        const [ax, az] = lower[i], [bx, bz] = lower[j], [cx, cz] = upper[j], [dx, dz] = upper[i];
+        const u = Math.hypot(bx - ax, bz - az) / (style === 1 ? 29 : 38);
+        const u0 = windowOffset + i * .29;
+        vertices.push(ax,low,az, bx,low,bz, dx,top,dz, bx,low,bz, cx,top,cz, dx,top,dz);
+        uv.push(u0,v0, u0+u,v0, u0,v0+v, u0+u,v0, u0+u,v0+v, u0,v0+v);
+        roofs.push(topX,top,topZ, dx,top,dz, cx,top,cz);
+      }
     }
+    if (!vertices.length) return;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    scene.add(new Mesh(geometry, new MeshBasicMaterial({ map: facadeTexture(style) })));
+    scene.add(new Mesh(geometry, facadeMaterial(style)));
   });
+  if (!roofs.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(roofs, 3));
+  geometry.computeVertexNormals();
+  scene.add(new Mesh(geometry, roof));
 }
 
-function billboard(building, index) {
-  const pink = index % 3 === 0;
-  const accent = pink ? '#ff67b6' : '#6ff8ed';
-  const map = texture(512, 256, ctx => {
-    ctx.fillStyle = pink ? '#26132e' : '#0b2430';
-    ctx.fillRect(0, 0, 512, 256);
-    const gradient = ctx.createLinearGradient(0, 260, 500, 0);
-    gradient.addColorStop(0, pink ? '#65184f' : '#125058');
-    gradient.addColorStop(.6, '#101a32');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(12, 12, 488, 232);
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 3;
-    ctx.strokeRect(13, 13, 486, 230);
-    ctx.globalAlpha = 0.32;
-    for (let i = 0; i < 9; i++) {
-      ctx.beginPath();
-      ctx.moveTo(300 + i * 20, 12);
-      ctx.lineTo(500, 190 - i * 20);
-      ctx.stroke();
+const billboardAtlas = new Image();
+billboardAtlas.src = billboardAtlasUrl;
+
+function billboard(building, index, width, height) {
+  const subjects = [
+    { title: 'NOCTURNE', copy: 'AFTER DARK', color: '#ff7c6d' },
+    { title: 'KAIROS', copy: 'DOMESTIC SYSTEMS', color: '#a3e5e1' },
+    { title: 'VERDANT', copy: 'GROW ANYWHERE', color: '#dcf474' },
+    { title: 'NOVA', copy: 'OPEN THE SKY', color: '#ffc07d' },
+  ];
+  const match = subjects.findIndex(({ title }) => title === building.sign);
+  const art = match < 0 ? (index * 3) % subjects.length : match;
+  const subject = subjects[art];
+  const paint = ctx => {
+    ctx.fillStyle = '#141c20';
+    ctx.fillRect(0, 0, 512, 512);
+    if (billboardAtlas.complete && billboardAtlas.naturalWidth) {
+      const w = billboardAtlas.naturalWidth / 2, h = billboardAtlas.naturalHeight / 2;
+      ctx.drawImage(billboardAtlas, art % 2 * w + 2, Math.floor(art / 2) * h + 2, w - 4, h - 4, 0, 0, 512, 512);
     }
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = accent;
-    ctx.font = 'bold 26px monospace';
-    ctx.fillText(index % 2 ? '◈   AERIAL TRANSIT' : '◈   MERIDIAN CITY', 32, 58);
-    ctx.fillStyle = '#fff1ed';
-    ctx.font = 'italic 900 81px sans-serif';
-    ctx.fillText(building.sign, 29, 153, 452);
-    ctx.fillStyle = accent;
-    ctx.fillRect(31, 186, 117, 5);
-    ctx.font = '22px monospace';
-    ctx.fillText(index % 2 ? 'SKY DECK OPEN' : 'NIGHT SERVICE', 32, 222);
-  });
-  const material = new MeshBasicMaterial({ map, color: new Color(1.35, 1.35, 1.35) });
-  const board = new Mesh(new THREE.PlaneGeometry(building.w * .81, building.w * .41), material);
-  board.position.set(building.x, building.h * .62, building.z + building.d / 2 + 1.3);
-  return board;
+    const fade = ctx.createLinearGradient(0, 0, 410, 0);
+    fade.addColorStop(0, '#101416ef');
+    fade.addColorStop(1, '#14171900');
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = subject.color;
+    ctx.fillRect(23, 38, 91, 5);
+    ctx.font = 'bold 19px monospace';
+    ctx.fillText('MERIDIAN / DISTRICT MEDIA', 23, 73);
+    ctx.fillStyle = '#fff7e1';
+    ctx.font = '900 71px sans-serif';
+    ctx.fillText(building.sign, 21, 322, 385);
+    ctx.fillStyle = subject.color;
+    ctx.font = 'bold 29px monospace';
+    ctx.fillText(subject.copy, 24, 363, 363);
+    ctx.fillRect(0, 507, 512, 5);
+    ctx.fillStyle = '#10131921';
+    for (let y = 0; y < 512; y += 4) ctx.fillRect(0, y, 512, 1);
+  };
+  const map = texture(512, 512, paint);
+  if (!billboardAtlas.complete) billboardAtlas.addEventListener('load', () => {
+    paint(map.image.getContext('2d'));
+    map.needsUpdate = true;
+  }, { once: true });
+  const material = new MeshBasicMaterial({ map, color: new Color(1.5, 1.5, 1.5) });
+  material.onBeforeCompile = shader => {
+    shader.uniforms.towerTime = towerTime;
+    shader.fragmentShader = 'uniform float towerTime;\n' + shader.fragmentShader.replace('#include <map_fragment>',
+      '#include <map_fragment>\nfloat scan = 1.0 + .16 * smoothstep(.91, .99, sin(vMapUv.y * 13.0 - towerTime * .65));\ndiffuseColor.rgb *= scan;');
+  };
+  return new Mesh(new THREE.PlaneGeometry(width, height), material);
 }
 
 let lightDisc;
@@ -259,98 +308,180 @@ function glowSprite(color, x, y, z, size, opacity) {
   return sprite;
 }
 
-function towers(scene, buildings) {
+const trim = new MeshStandardMaterial({ color: '#484847', roughness: .81, metalness: .26 });
+const structural = new MeshStandardMaterial({ color: '#313838', roughness: .91 });
+const lightColors = ['#ffc479', '#62d8ed', '#ff785c', '#e4b154', '#fff1a4', '#add27e'];
+const towerNeon = lightColors.map(color => neon(color, 2));
+const beacon = neon('#ff5f37', 2.6);
+
+function towers(scene, buildings, signs = true) {
   const slices = glassPalettes.map(() => []);
-  const shells = [], caps = [], ribs = [], ledges = [], warm = [], teal = [], pink = [], beacons = [];
+  const caps = [], ribs = [], ledges = [], beacons = [];
+  const lights = lightColors.map(() => []);
   const random = randomFor(13082);
   buildings.forEach((b, index) => {
-    const segment = (w, d, base, h) => {
-      shells.push([b.x, base + h / 2, b.z, w, h, d]);
-      slices[b.style].push({ x: b.x, z: b.z, w, d, base, h });
-      caps.push([b.x, base + h - .4, b.z, w + 1.5, 1.4, d + 1.5]);
+    const lit = lights[b.style];
+    const levels = [];
+    const segment = (from, to, w, d, options = {}) => {
+      const { topW = w, topD = d, lean = 0, shift = 0, bevel = 0 } = options;
+      const x = b.x + shift * b.w, z = b.z;
+      const form = { x, z, w: w * b.w, d: d * b.d, base: from * b.h, h: (to - from) * b.h,
+        topW: topW * b.w, topD: topD * b.d, topX: x + lean * b.w, topZ: z,
+        bevel, windowOffset: random() };
+      slices[b.style].push(form);
+      levels.push(form);
+      return form;
     };
-    if (b.type === 0) segment(b.w, b.d, 0, b.h);
-    else {
-      const base = b.h * (b.type === 3 ? .24 : .37);
-      const width = [0, .87, .65, .88][b.type], depth = [0, .87, .86, .76][b.type];
-      segment(b.w, b.d, 0, base);
-      if (b.type === 2) {
-        segment(b.w * .82, b.d * .91, base, b.h * .39);
-        segment(b.w * width, b.d * depth, base + b.h * .39, b.h - base - b.h * .39);
-      } else segment(b.w * width, b.d * depth, base, b.h - base);
-    }
-    const top = slices[b.style].at(-1);
-    const xLeft = b.x - top.w / 2, xRight = b.x + top.w / 2;
-    const zFront = b.z + top.d / 2 + .25, zBack = b.z - top.d / 2 - .25;
-    const lit = b.style === 2 ? pink : b.style === 1 ? teal : warm;
-    for (const x of [xLeft, xRight]) {
-      for (const z of [zFront, zBack]) {
-        ribs.push([x, top.base + top.h / 2, z, 1.2, top.h, 1.3]);
-        if (b.sign || random() < .13) {
-          const stripe = top.h * (.63 + random() * .29);
-          lit.push([x, b.h - 4 - stripe / 2, z, .46, stripe, .53]);
-        }
-      }
-    }
-    if (b.sign) {
+    const band = (y, w, d, x = b.x, on = true) => {
+      ledges.push([x, y, b.z, w + 1.1, 1.7, d + 1.1]);
+      if (!on) return;
       for (const side of [-1, 1]) {
-        const bladeX = b.x + side * top.w * .49;
-        const shoulder = b.h * (b.type === 3 ? .64 : .82);
-        const extension = b.h * (b.type === 2 ? .11 : .045);
-        ledges.push([bladeX, (b.h + shoulder + extension) / 2, b.z, 2.1, b.h + extension - shoulder, top.d * .92]);
-        lit.push([bladeX, b.h + extension - .4, b.z, .72, .59, top.d * .91]);
-        beacons.push([bladeX, b.h + extension, zFront - 4, 1, .7, 1]);
+        lit.push([x, y + .72, b.z + side * (d / 2 + .67), w, .32, .41]);
+        lit.push([x + side * (w / 2 + .68), y + .72, b.z, .43, .32, d]);
       }
-      for (const floor of [.48, .74, .86]) {
-        ledges.push([b.x, b.h * floor, b.z, top.w + 1.8, 2.4, top.d + 2.4]);
-        lit.push([b.x, b.h * floor + 1.28, zFront + 1.07, top.w * .94, .38, .33]);
-        for (const side of [-1, 1]) lit.push([b.x + side * (top.w / 2 + .96), b.h * floor + 1.24, b.z, .33, .35, top.d * .92]);
+    };
+    let top;
+    switch (b.type) {
+      case 1:
+        segment(0,.28,1,1);
+        top = segment(.28,1,.83,.85);
+        band(b.h * .29, b.w * .94, b.d * .92);
+        break;
+      case 2:
+        segment(0,.31,1,1);
+        segment(.31,.70,.84,.91);
+        top = segment(.70,1,.63,.74);
+        caps.push([b.x, b.h * .695, b.z, b.w * .87, .9, b.d * .94]);
+        break;
+      case 3:
+        segment(0,.24,1,1);
+        top = segment(.24,1,.78,.82,{ shift: .07 });
+        ribs.push([b.x - b.w * .39, b.h * .41, b.z, 2.1, b.h * .34, b.d * .61]);
+        break;
+      case 4:
+        segment(0,.16,1,1,{ bevel: .25 });
+        top = segment(.16,.92,.84,.91,{ bevel: .34, topW: .77, topD: .84 });
+        segment(.92,1,.78,.85,{ bevel: .34, topW: .58, topD: .63 });
+        for (const y of [.21,.38,.59,.78,.90]) {
+          const ring = profile(b.x,b.z,b.w * (.86 - y * .075),b.d * (.94 - y * .082),.34);
+          for (let side = 0; side < ring.length; side++) {
+            const a = ring[side], c = ring[(side + 1) % ring.length];
+            lit.push([(a[0] + c[0]) / 2, b.h * y, (a[1] + c[1]) / 2, .55,.48,
+              Math.hypot(a[0] - c[0],a[1] - c[1]),Math.atan2(c[0] - a[0],c[1] - a[1])]);
+          }
+        }
+        break;
+      case 5: {
+        const lean = index % 2 ? -.14 : .14;
+        segment(0,.24,1,1,{ bevel: .08 });
+        top = segment(.24,1,.96,.89,{ topW: .53, topD: .63, lean, bevel: .11 });
+        for (const side of [-1,1]) for (const face of [-1,1]) {
+          const x = b.x + side * b.w * .31, z = b.z + face * b.d * .406;
+          ribs.push([x,b.h*.49,z,2,b.h*.49,1.25]);
+          lit.push([x,b.h*.56,z + face * .7,.43,b.h*.36,.38]);
+        }
+        break;
       }
-      caps.push([b.x, b.h + 3.2, b.z, top.w * .73, 6.5, top.d * .55]);
-      const glow = lit === teal ? '#77fff0' : lit === pink ? '#ff539b' : '#ffc68c';
-      for (const side of [-1, 1]) for (const floor of [.74, .98]) {
-        scene.add(glowSprite(glow, b.x + side * top.w * .46, b.h * floor, zFront + 2.1, 13, .18));
-      }
-    } else if (b.h > 85) {
-      for (let y = 18 + random() * 15; y < top.h - 5; y += 24 + random() * 19) {
-        ledges.push([b.x, top.base + y, b.z, top.w + .8, .81, top.d + .8]);
+      case 6:
+        segment(0,.17,1,1);
+        segment(.17,.24,.70,.70);
+        top = segment(.24,.92,.96,.91,{ bevel: .06 });
+        segment(.92,1,.64,.53);
+        for (const y of [.25,.54,.74,.915]) band(b.h * y,b.w * .96,b.d * .91,b.x,y !== .54);
+        for (const side of [-1,1]) ribs.push([b.x+side*b.w*.405,b.h*.6,b.z,3.4,b.h*.63,b.d*.94]);
+        break;
+      case 7:
+        segment(0,.25,1,1,{ bevel: .06 });
+        segment(.25,.46,.91,.83,{ shift: -.025 });
+        segment(.46,.68,.78,.70,{ shift: .05 });
+        top = segment(.68,1,.62,.57,{ shift: .09, topW: .58, topD: .52 });
+        for (const [y,width,depth,shift] of [[.25,.99,.99,0],[.46,.92,.84,-.025],[.68,.78,.71,.05]]) {
+          band(b.h * y,b.w * width,b.d * depth,b.x+b.w*shift);
+          for (const side of [-1,1]) caps.push([b.x+b.w*shift+side*b.w*width*.26,b.h*y+1.25,b.z+b.d*depth*.44,
+            b.w*.22,2.25,b.d*.10]);
+        }
+        break;
+      default:
+        top = segment(0,1,1,1,{ bevel: b.h > 72 && index % 4 === 0 ? .07 : 0 });
+    }
+    const zFront = top.z + top.d / 2 + .55;
+    const litVertical = b.sign || (b.h > 62 && index % 4 === 1);
+    if (litVertical && b.type < 4) {
+      for (const side of [-1, 1]) {
+        const x = top.x + side * top.w * .48;
+        lit.push([x, top.base + top.h * .58, zFront, .56, top.h * .77, .46]);
+        ribs.push([x, top.base + top.h / 2, zFront - 1.2, 2.1, top.h, 2.6]);
       }
     }
-    if (b.sign || random() < .24) {
-      lit.push([b.x, b.h - .3, zFront + .5, top.w, .32, .4]);
-      lit.push([b.x, b.h - .3, zBack - .5, top.w, .32, .4]);
+    if (b.h > 70 && (b.type === 0 || b.type === 3)) {
+      for (let y = .17; y < .85; y += .16) {
+        if (b.h*y > top.base + 4) band(b.h*y,top.w,top.d,top.x,index % 4 === 0);
+      }
     }
-    if (b.h > 126 || random() < .25) {
-      const mast = b.sign ? 11 + random() * 21 : 4 + random() * 11;
-      caps.push([b.x + top.w * .19, b.h + mast / 2, b.z, .7, mast, .7]);
-      beacons.push([b.x + top.w * .19, b.h + mast, b.z, 1.1, .76, 1.1]);
+    if (b.h > 95 || index % 5 === 1) {
+      const mast = b.sign ? 13 + random() * 15 : 4 + random() * 12;
+      const x = top.topX + top.topW * .13;
+      caps.push([x, b.h + mast / 2, b.z, .71, mast, .71]);
+      beacons.push([x, b.h + mast, b.z, 1.2, .78, 1.2]);
     }
-    caps.push([b.x, b.h + 1.2, b.z + top.d * .14, top.w * .30, 2.5, top.d * .24]);
-    if (b.h < 17) {
-      ledges.push([b.x, b.h - .45, zFront + 1.1, top.w * .91, .48, 2.4]);
-      lit.push([b.x, b.h - .55, zFront + 2.2, top.w * .84, .19, .2]);
-      caps.push([b.x - top.w * .23, b.h + 1.06, b.z - 2.2, top.w * .17, 2, top.d * .19]);
+    caps.push([top.topX, b.h + 1.1, top.topZ, top.topW * .32, 2.2, top.topD * .25]);
+    if (b.h < 52) {
+      const z = b.z + b.d / 2 + .7;
+      ledges.push([b.x,4.3,z,b.w*.86,.72,3.1]);
+      lit.push([b.x,4.31,z+1.54,b.w*.75,.28,.23]);
+      caps.push([b.x-b.w*.24,b.h+1.26,b.z+b.d*.11,b.w*.20,2.5,b.d*.23]);
     }
-    if (b.sign) {
-      const sign = billboard(b, index);
-      sign.position.z = zFront + .8;
+    if (b.sign && signs) {
+      const lower = levels.find(form => form.base <= b.h * .62 && form.base + form.h >= b.h * .62);
+      const signD = lower ? Math.max(lower.d,lower.topD) : top.d;
+      const height = Math.min(56,b.w*.85), width = Math.min(60,b.w*.78);
+      const sign = billboard(b,index,width,height);
+      sign.position.set(b.x,b.h*.62,b.z+signD/2+1.7);
       scene.add(sign);
+      if (index % 2 === 0) scene.add(glowSprite(lightColors[b.style], b.x+width*.27, b.h*.54, sign.position.z+2.8, 24, .16));
     }
   });
-  batch(scene, box, new MeshStandardMaterial({ color: '#252536', roughness: .93 }), shells);
-  batch(scene, box, new MeshStandardMaterial({ color: '#34313f', roughness: .9 }), caps);
-  batch(scene, box, new MeshBasicMaterial({ color: '#403a52' }), ribs);
-  batch(scene, box, neon('#ffc589', 1.75), warm);
-  batch(scene, box, neon('#57f6f0', 2.7), teal);
-  batch(scene, box, neon('#ff5aa4', 2.8), pink);
-  batch(scene, box, neon('#ff5069', 3), beacons);
-  batch(scene, box, new MeshStandardMaterial({ color: '#363444', roughness: .82, metalness: .31 }), ledges);
+  batch(scene, box, trim, caps);
+  batch(scene, box, structural, ribs.concat(ledges));
+  lights.forEach((items, style) => batch(scene, box, towerNeon[style], items));
+  batch(scene, box, beacon, beacons);
   addFacades(scene, slices);
 }
 
+const stone = new MeshStandardMaterial({ color: '#323a3b', roughness: .75 });
+const asphalt = new MeshStandardMaterial({ color: '#20282a', roughness: .43, metalness: .22 });
+const publicGreen = new MeshStandardMaterial({ color: '#415044', roughness: .9 });
+const paintedLines = new MeshBasicMaterial({ color: '#afa17c' });
+const warmLamp = neon('#ffcc87', 2.4);
+const coldLamp = neon('#9ddbe2', 1.65);
+const hazardLamp = neon('#ff6b41', 2.4);
+const pavementGlow = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: `
+    varying vec2 vUv;
+    varying vec3 glowColor;
+    void main() {
+      vUv = uv;
+      glowColor = instanceColor;
+      gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vUv;
+    varying vec3 glowColor;
+    void main() {
+      vec2 p = vUv * 2.0 - 1.0;
+      float light = pow(max(0.0, 1.0-dot(p,p)), 2.65);
+      float ripple = .79 + .21*sin(vUv.y*165.0 + sin(vUv.x*37.0)*1.7);
+      gl_FragColor = vec4(glowColor, light*ripple*.145);
+    }`,
+});
+const pavingPlane = new THREE.PlaneGeometry().rotateX(-Math.PI / 2);
+const line = (array, x, y, z, toX, toZ, width, height = .18) => {
+  const dx = toX - x, dz = toZ - z;
+  array.push([(x + toX) / 2, y, (z + toZ) / 2, width, height, Math.hypot(dx, dz), Math.atan2(dx, dz)]);
+};
+
 function ground(scene, buildings) {
-  const stone = new MeshStandardMaterial({ color: '#2c3040', roughness: .85 });
-  const road = new MeshStandardMaterial({ color: '#181d2a', roughness: .78 });
   scene.add(shapeMesh(shore, 0, stone));
   const cliff = new MeshBasicMaterial({ color: '#1d2433' });
   const platforms = [
@@ -361,12 +492,8 @@ function ground(scene, buildings) {
   ];
   platforms.forEach(points => scene.add(shapeMesh(points, .4, cliff)));
   const curbs = [], streets = [], paint = [], poles = [], lamps = [], grass = [], stems = [], leaves = [], pools = [];
-  const signs = [], fountains = [], buoys = [], awnings = [];
+  const signs = [], fountains = [], buoys = [], awnings = [], spill = [], signals = [], posts = [];
   const random = randomFor(13652);
-  const line = (array, x, y, z, toX, toZ, width, height = .18) => {
-    const dx = toX - x, dz = toZ - z;
-    array.push([(x + toX) / 2, y, (z + toZ) / 2, width, height, Math.hypot(dx, dz), Math.atan2(dx, dz)]);
-  };
   const lightsAlong = (x, z, toX, toZ, spacing, height, target = lamps) => {
     const count = Math.floor(Math.hypot(toX - x, toZ - z) / spacing);
     for (let i = 0; i < count; i++) {
@@ -378,21 +505,40 @@ function ground(scene, buildings) {
     }
   };
 
-  for (let col = -6; col <= 5; col++) {
-    const x = col * 136 + 68;
-    const north = x > 540 ? 160 : -800 + Math.max(0, -x - 490) * .6;
-    const south = x > 430 ? 620 : x < -540 ? 730 : 888;
-    line(streets, x, .11, north, x, south, 16);
-    line(curbs, x + 9, .22, north, x + 9, south, 1.8);
-    lightsAlong(x - 9, north, x - 9, south, 37, 6);
-    for (let z = north + 16; z < south - 10; z += 22) line(paint, x, .25, z, x, z + 9, .28);
-  }
-  for (let row = -6; row <= 6; row++) {
-    const z = row * 125 + 62.5;
-    const west = (Math.abs(z) > 660 ? -668 : -925), east = z > 650 ? 391 : z > 150 ? 641 : 553;
-    line(streets, west, .12, z, east, z, 13);
-    lightsAlong(west, z + 8.2, east, z + 8.2, 48, 5.8);
-    for (let x = west + 14; x < east - 10; x += 22) line(paint, x, .25, z, x + 9, z, .26);
+  for (const { horizontal, center, width, start, end } of streetGrid) {
+    const coordinates = (across, offset = 0) => horizontal ? [across, center + offset] : [center + offset, across];
+    const roadBetween = (target, height, from, to, w, offset, thickness) => {
+      const [x,z] = coordinates(from,offset);
+      line(target,x,height,z,...coordinates(to,offset),w,thickness);
+    };
+    roadBetween(streets,.11,start,end,width,0);
+    for (const side of [-1, 1]) {
+      roadBetween(curbs,.21,start,end,2.9,side*(width/2+1.6));
+      roadBetween(paint,.23,start,end,.18,side*(width/2-.53),.08);
+    }
+    lightsAlong(...coordinates(start,width/2+2.4),...coordinates(end,width/2+2.4),35,5.8);
+    for (let across = start + 17; across < end - 10; across += 22) roadBetween(paint,.23,across,across+8,.28,0,.065);
+    for (let across = start + 19; across < end - 20; across += 35) {
+      const [x,z] = coordinates(across, width*.13);
+      if ([park,plaza].some(space => Math.abs(x-space.x) < space.w/2 && Math.abs(z-space.z) < space.d/2)) continue;
+      spill.push([x,.26,z,11+random()*6,1,16+random()*9,horizontal ? Math.PI/2:0,
+        random() < .24 ? '#80bad0' : '#e6a762']);
+    }
+    if (!horizontal) continue;
+    for (let col = -6; col <= 4; col++) {
+      const crossing = col * 136 + 68;
+      if (crossing < start + 18 || crossing > end - 18) continue;
+      if ([park,plaza].some(space => Math.abs(crossing-space.x) < space.w/2+9 && Math.abs(center-space.z) < space.d/2+9)) continue;
+      for (const side of [-1, 1]) {
+        for (let stripe = -11; stripe <= 11; stripe += 2.6) {
+          paint.push([crossing + stripe*.55,.24,center+side*9.7,1.0,.08,3.3]);
+          paint.push([crossing + side*10.4,.24,center+stripe*.5,3.5,.08,.94]);
+        }
+        const x = crossing + side*10.8, z = center - side*10.2;
+        posts.push([x,3.0,z,.34,6.0,.34],[x,5.9,z,.89,.35,5.2]);
+        signals.push([x,.74+5.8,z-2.3,.54,.57,.27]);
+      }
+    }
   }
 
   for (const { x, z, w, d } of [park, plaza]) {
@@ -463,11 +609,46 @@ function ground(scene, buildings) {
   }
 
   for (const b of buildings) {
-    curbs.push([b.x, .42, b.z, b.w + 14, .55, b.d + 14]);
-    if (random() < .73) {
-      signs.push([b.x, 3.3, b.z + b.d / 2 + 1, 7 + random() * 11, 1.1, .2]);
-      for (let i = -1; i <= 1; i++) lamps.push([b.x + i * 4, 1.2, b.z + b.d / 2 + 3, .23, 2.1, .23]);
+    curbs.push([b.x,.48,b.z,b.w+11,.68,b.d+11]);
+    const z = b.z+b.d/2+1.7;
+    if (random() < .89) {
+      const lamp = b.style === 2 ? signals : b.style === 1 || b.style === 5 ? signs : lamps;
+      lamp.push([b.x,3.7,z,Math.min(b.w*.65,7+random()*18),.86,.29]);
+      spill.push([b.x,.86,z+3.7,Math.min(b.w,29),1,12,0,lightColors[b.style]]);
+      for (const side of [-1,1]) {
+        const x = b.x+side*b.w*.28;
+        poles.push([x,1.68,z+.75,.32,2.7,.33]);
+        lamp.push([x,2.92,z+1.05,.51,.66,.44]);
+      }
     }
+    if (b.h > 65 && random() < .55) {
+      for (let i = -2; i <= 2; i++) {
+        const x = b.x + i*b.w*.14;
+        awnings.push([x,3.55,z+1.3,b.w*.126,.57,3.65,0,i%2 ? '#70504b' : '#4f5b5e']);
+        lamps.push([x,2.9,z+2.8,b.w*.10,.18,.27]);
+      }
+    }
+  }
+  for (const offset of [-8, 8]) {
+    line(curbs,-147+offset,5.1,971,-69+offset,1647,2.1,2.2);
+    lightsAlong(-147+offset,980,-69+offset,1645,26,7.3);
+  }
+  line(streets,-147,4,965,-69,1650,25,1.75);
+  for (const [x,z,toX,toZ] of [[-359,620,-87,601],[-352,393,-99,396],[-75,-224,160,-210]]) {
+    line(curbs,x,13,z,toX,toZ,10.8,2.75);
+    line(awnings,x,18.5,z,toX,toZ,10.5,1.2);
+    const tx=toX-x,tz=toZ-z,norm=Math.hypot(tx,tz),dx=-tz/norm*4.9,dz=tx/norm*4.9;
+    for (const side of [-1,1]) {
+      line(lamps,x+side*dx,16.45,z+side*dz,toX+side*dx,toZ+side*dz,.38,.32);
+      for (let t=.08;t<.98;t+=.075) {
+        poles.push([x+tx*t+side*dx,16,z+tz*t+side*dz,.48,5.0,.48]);
+      }
+    }
+    for (const t of [.18,.47,.78]) posts.push([x+tx*t,6,z+tz*t,1.7,12.1,2.0]);
+  }
+  for (let i=0;i<13;i++) {
+    const t=i/13;
+    curbs.push([-147+t*78,.32,982+t*660,4.4,9.0,5.1]);
   }
 
   shore.forEach(([x, z], index) => {
@@ -482,12 +663,14 @@ function ground(scene, buildings) {
     else lamps.push([x, 1.5, z, 1.15, .7, 1.15]);
   }
 
-  batch(scene, box, road, streets);
+  batch(scene, box, asphalt, streets);
   batch(scene, box, stone, curbs);
-  batch(scene, box, new MeshBasicMaterial({ color: '#786b70' }), paint);
-  batch(scene, box, new MeshStandardMaterial({ color: '#292b35' }), poles.concat(stems, buoys));
-  batch(scene, box, neon('#ffd9a2', 2.3), lamps);
-  batch(scene, box, neon('#65eddb', 1.8), signs);
+  batch(scene, box, paintedLines, paint);
+  batch(scene, box, structural, poles.concat(stems, buoys, posts));
+  batch(scene, box, warmLamp, lamps);
+  batch(scene, box, coldLamp, signs);
+  batch(scene, box, hazardLamp, signals);
+  batch(scene, pavingPlane, pavementGlow, spill);
   batch(scene, box, neon('#9bdbfa', 2.1), fountains);
   batch(scene, box, new MeshBasicMaterial({ color: '#174543' }), grass);
   batch(scene, box, new MeshBasicMaterial({ color: '#276583' }), pools);
@@ -500,7 +683,7 @@ function mountains(scene) {
   const material = new MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
   for (let band = 0; band < 3; band++) {
     const vertices = [], colors = [];
-    const tone = new Color(['#414052', '#383749', '#2a293c'][band]);
+    const tone = new Color(['#394445', '#353e41', '#2e3739'][band]);
     const back = -2200 - (2 - band) * 550;
     const peaks = Array.from({ length: 29 }, (_, i) => {
       const x = (i - 14) * 230;
@@ -524,70 +707,195 @@ function mountains(scene) {
   }
 }
 
-function traffic(scene, buildings) {
-  const random = randomFor(18725);
-  const lanes = [
-    { horizontal: true, lane: 679, height: 73, start: -1010, end: 1050 },
-    { horizontal: true, lane: 312.5, height: 94, start: -1000, end: 1010 },
-    { horizontal: true, lane: 814, height: 60, start: -520, end: 860 },
-    { horizontal: true, lane: 955, height: 46, start: -740, end: 775 },
-    { horizontal: false, lane: 855, height: 88, start: -990, end: 1180 },
-    { horizontal: false, lane: 970, height: 115, start: -1050, end: 1120 },
-    { horizontal: false, lane: -218, height: 72, start: 150, end: 850 },
-  ].filter(lane => {
-    for (let across = lane.start; across < lane.end; across += 9) {
-      const position = { x: lane.horizontal ? across : lane.lane, y: lane.height, z: lane.horizontal ? lane.lane : across };
-      if (buildings.some(b => intersectsBuilding(position, b, 10))) return false;
+const footpaths = [
+  [-286, 308, -286, 400, 8], [-153, 310, -153, 406, 8],
+  [-271, 409, -168, 409, 9], [-269, 302, -170, 302, 7],
+  [-98, 103, 107, 103, 14], [-93, 145, 108, 48, 9],
+  [-293, 924, 15, 924, 17], [-219, 722, -219, 805, 8],
+];
+
+const distantTowers = new MeshStandardMaterial({ roughness: .87 });
+distantTowers.onBeforeCompile = shader => {
+  shader.vertexShader = 'varying vec3 towerPosition; varying vec3 towerNormal;\n' + shader.vertexShader.replace('#include <begin_vertex>',
+    '#include <begin_vertex>\ntowerPosition = (instanceMatrix * vec4(position,1.0)).xyz; towerNormal = normal;');
+  shader.fragmentShader = 'varying vec3 towerPosition; varying vec3 towerNormal;\n' + shader.fragmentShader.replace(
+    '#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+    float side = step(.5,abs(towerNormal.x));
+    vec2 facade = vec2(mix(towerPosition.x,towerPosition.z,side)*.19,towerPosition.y*.23);
+    vec2 pane = fract(facade);
+    float room = fract(sin(dot(floor(facade) + floor(towerPosition.xz*.033),vec2(127.1,311.7)))*43758.54);
+    vec2 aa = min(vec2(.19),fwidth(facade)*.5);
+    float shape = smoothstep(.19-aa.x,.19+aa.x,pane.x)*(1.0-smoothstep(.78-aa.x,.78+aa.x,pane.x))
+      * smoothstep(.22-aa.y,.22+aa.y,pane.y)*(1.0-smoothstep(.68-aa.y,.68+aa.y,pane.y));
+    totalEmissiveRadiance += shape * step(.66,room)*(1.0-step(.5,abs(towerNormal.y)))
+      * mix(vec3(.40,.21,.065),vec3(.12,.30,.34),step(.855,room));
+    `);
+};
+const tilesRadius = 3;
+
+function drawTile(tile, detail) {
+  const group = new Group();
+  const paved = [], roads = [], marks = [], lights = [], pools = [], curbs = [], lawns = [], docks = [];
+  for (const {x,z,publicSpace} of tile.blocks) {
+    paved.push([x,-1.25,z,blockSize-9,2.5,blockSize-9]);
+    if (publicSpace === 'garden') {
+      for (const dx of [-25,25]) for (const dz of [-25,25]) lawns.push([x+dx,.2,z+dz,42,.4,39]);
+      if (detail) {
+        for (const offset of [-50,50]) {
+          line(marks,x+offset,.215,z-49,x+offset,z+49,.38,.08);
+          line(marks,x-49,.215,z+offset,x+49,z+offset,.38,.08);
+        }
+        for (const offset of [-38,-15,15,38]) {
+          lights.push([x+offset,1.35,z+7,.43,.44,.43],[x-7,1.35,z+offset,.43,.44,.43]);
+          pools.push([x+offset,.5,z+7,7,1,8,0,'#9dda98'],[x-7,.5,z+offset,8,1,7,0,'#a6d3bb']);
+        }
+      }
     }
-    return true;
-  });
-  const movers = lanes.flatMap((lane, i) => Array.from({ length: i < 3 ? 5 : 3 }, (_, index) => ({
-    ...lane, phase: (index + random() * .35) / (i < 3 ? 5 : 3),
-    speed: (23 + random() * 19) / (lane.end - lane.start), direction: i % 2 ? 1 : -1,
-  })));
-  const dark = new MeshStandardMaterial({ color: '#858398', metalness: .4, roughness: .45 });
-  const parts = [
-    { mesh: new THREE.InstancedMesh(box, dark, movers.length), w: 2.7, h: .85, d: 6.3, offset: 0, y: 0 },
-    { mesh: new THREE.InstancedMesh(box, neon('#cbf8ff', 3), movers.length), w: 1.95, h: .23, d: .29, offset: 3.25, y: -.1 },
-    { mesh: new THREE.InstancedMesh(box, neon('#ff426e', 3), movers.length), w: 1.95, h: .23, d: .29, offset: -3.25, y: -.1 },
-  ];
-  const dummy = new THREE.Object3D();
-  for (const { mesh } of parts) {
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.frustumCulled = false;
-    scene.add(mesh);
+    if (publicSpace === 'yard') {
+      for (let slot=0;slot<9;slot++) {
+        const dx = (slot%3-1)*24, dz = (Math.floor(slot/3)-1)*23;
+        docks.push([x+dx,1.65,z+dz,10.5,3.2,19,0,slot%3===0?'#6b5242':'#526364']);
+        if (slot%4===0) docks.push([x+dx,4.9,z+dz,10.5,3.1,19,0,'#766540']);
+      }
+      if (detail) {
+        for (const side of [-1,1]) {
+          curbs.push([x+side*41,7.1,z-27,1.6,14.2,1.6]);
+          lights.push([x+side*41,14.4,z-27,1.8,.56,.89]);
+          pools.push([x+side*28,.12,z-27,23,1,35,0,'#cf9856']);
+        }
+        curbs.push([x,14,z-27,83,1.65,1.82]);
+      }
+    }
   }
-  return time => {
-    for (const { mesh, w, h, d, offset, y } of parts) {
-      movers.forEach(({ horizontal, lane, height, start, end, phase, speed, direction }, index) => {
-        const progress = (time * speed + phase) % 1;
-        const across = THREE.MathUtils.lerp(start, end, direction === 1 ? progress : 1 - progress) + offset * direction;
-        dummy.position.set(horizontal ? across : lane, height + y, horizontal ? lane : across);
-        dummy.rotation.y = horizontal ? -direction * Math.PI / 2 : direction === 1 ? Math.PI : 0;
-        dummy.scale.set(w, h, d);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(index, dummy.matrix);
-      });
-      mesh.instanceMatrix.needsUpdate = true;
+  for (let i = 0; i < 5; i++) {
+    const at = -tileSize/2 + i * blockSize;
+    line(roads,at,.12,-tileSize/2,at,tileSize/2,17,.24);
+    line(roads,-tileSize/2,.125,at,tileSize/2,at,17,.25);
+    if (detail) {
+      for (const offset of [-9.5,9.5]) {
+        line(curbs,at+offset,.31,-tileSize/2,at+offset,tileSize/2,1.8,.42);
+        line(curbs,-tileSize/2,.32,at+offset,tileSize/2,at+offset,1.8,.42);
+      }
+      for (let along = -tileSize/2+18; along < tileSize/2-12; along += 19) {
+        marks.push([at,.27,along,.24,.1,7],[along,.27,at,7,.1,.24]);
+        if (Math.round(along/19)%2===0) {
+          lights.push([at+7.4,4.7,along,.88,.33,.76],[along,4.7,at-7.4,.86,.34,.81]);
+          curbs.push([at+7.4,2.35,along,.28,4.68,.28],[along,2.35,at-7.4,.28,4.68,.28]);
+          pools.push([at-1,.29,along,15,1,19,0,tile.district.color],[along,.29,at+1,18,1,14,0,'#dea164']);
+        }
+      }
     }
+  }
+  batch(group,box,stone,paved);
+  batch(group,box,publicGreen,lawns);
+  batch(group,box,distantTowers,docks);
+  batch(group,box,asphalt,roads);
+  let move = null;
+  if (detail) {
+    batch(group,box,trim,curbs);
+    batch(group,box,paintedLines,marks);
+    batch(group,box,warmLamp,lights);
+    batch(group,pavingPlane,pavementGlow,pools);
+    towers(group,tile.buildings,false);
+    const { circuits, roads } = localTraffic(tile);
+    const people = [[-173,-184,202,-184,7],[65,-183,65,193,6],[-200,189,192,189,6]];
+    move = addMovingTraffic(group,circuits,roads,people,tile.seed);
+  } else {
+    const fragments = tile.buildings.map(b => [b.x,b.h/2,b.z,b.w,b.h,b.d,0,glassPalettes[b.style][0]]);
+    batch(group,box,distantTowers,fragments);
+  }
+  return { group, move };
+}
+
+function disposeTile(tile) {
+  tile.group.removeFromParent();
+  tile.group.traverse(object => {
+    if (object.isInstancedMesh) object.dispose();
+    else if (object.isMesh) object.geometry.dispose();
+  });
+}
+
+function streamTiles(scene) {
+  const loaded = new Map();
+  let currentCol, currentRow;
+  let pending = [];
+  let colliders = [];
+  return {
+    update(time, position, origin) {
+      const col = tileAt(position.x), row = tileAt(position.z);
+      let dirty = col !== currentCol || row !== currentRow;
+      if (dirty) {
+        currentCol = col;
+        currentRow = row;
+        const wanted = new Map();
+        for (let dz = -tilesRadius; dz <= tilesRadius; dz++) for (let dx = -tilesRadius; dx <= tilesRadius; dx++) {
+          if (coreTile(col+dx,row+dz)) continue;
+          const near = Math.max(Math.abs(dx),Math.abs(dz)) <= 1;
+          wanted.set(`${col+dx}/${row+dz}`,{ col: col+dx, row: row+dz, near, priority: dx*dx+dz*dz });
+        }
+        for (const [key,tile] of loaded) if (!wanted.has(key)) {
+          disposeTile(tile);
+          loaded.delete(key);
+        }
+        pending = [...wanted].filter(([key,job]) => loaded.get(key)?.near !== job.near)
+          .sort((a,b) => a[1].priority-b[1].priority);
+      }
+      const budget = pending[0]?.[1].priority === 0 ? 3 : 1;
+      for (let i = 0; i < budget && pending.length; i++) {
+        const [key,job] = pending.shift();
+        const old = loaded.get(key);
+        if (old) disposeTile(old);
+        const data = old?.data ?? generateTile(job.col,job.row);
+        const visuals = drawTile(data,job.near);
+        scene.add(visuals.group);
+        loaded.set(key,{ ...visuals, data, near:job.near });
+        dirty = true;
+      }
+      if (dirty) {
+        colliders = [];
+        for (const {data,near} of loaded.values()) if (near) {
+          for (const building of data.buildings) colliders.push({ ...building, x: building.x+data.x, z: building.z+data.z });
+        }
+      }
+      for (const {group,data,move} of loaded.values()) {
+        group.position.set(data.x-origin.x,0,data.z-origin.z);
+        if (move) move(time);
+      }
+      return colliders;
+    },
   };
 }
 
 export function createCity(scene) {
   const city = new Group();
   scene.add(city);
-  const buildings = generateBuildings();
-  sky(city);
-  const waterTime = water(city);
+  const dome = sky(scene);
+  const ocean = water(scene);
+  const coreBuildings = generateBuildings();
+  const streamer = streamTiles(scene);
   mountains(city);
-  ground(city, buildings);
-  towers(city, buildings);
-  const updateTraffic = traffic(city, buildings);
+  ground(city, coreBuildings);
+  towers(city, coreBuildings);
+  const updateTraffic = addMovingTraffic(city, airCircuits(coreBuildings), streetRuns(coreBuildings), footpaths, 18725);
+  let lastColliders, showCore;
   return {
-    buildings,
-    update(time) {
-      waterTime.value = time;
-      updateTraffic(time);
+    buildings: coreBuildings,
+    update(time, position, origin) {
+      towerTime.value = time;
+      const x = position.x - origin.x, z = position.z - origin.z;
+      dome.position.set(x, position.y, z);
+      ocean.position.set(x, -3, z);
+      ocean.material.uniforms.worldOffset.value.set(origin.x % 40960, origin.z % 40960);
+      city.position.set(-origin.x,0,-origin.z);
+      city.visible = Math.max(Math.abs(position.x), Math.abs(position.z)) < 5100;
+      if (city.visible) updateTraffic(time);
+      const colliders = streamer.update(time,position,origin);
+      const nearby = Math.max(Math.abs(position.x), Math.abs(position.z)) < 1480;
+      if (colliders !== lastColliders || nearby !== showCore) {
+        this.buildings = nearby ? coreBuildings.concat(colliders) : colliders;
+        lastColliders = colliders;
+        showCore = nearby;
+      }
     },
   };
 }
