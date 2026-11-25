@@ -315,11 +315,11 @@ function updateCamera(dt) {
   const eyeHeight = noseCamera ? 2 : 8.1 + flight.speed * .036;
   const distance = noseCamera ? -6.6 : (opening ? 26 : 24) + flight.speed * .11;
   const centerHeading = Math.atan2(-flight.position.x, flight.position.z);
-  const centerAngle = Math.atan2(Math.sin(centerHeading - heading), Math.cos(centerHeading - heading));
-  const offshore = guided && !noseCamera && status === 'flying'
-    ? THREE.MathUtils.smoothstep(flight.station, .462, .54) * (1 - THREE.MathUtils.smoothstep(flight.station, .915, .995))
+  const centerAngle = THREE.MathUtils.euclideanModulo(centerHeading - heading, Math.PI * 2);
+  const offshore = guided && !noseCamera
+    ? THREE.MathUtils.smoothstep(flight.station, .326, .445) * (1 - THREE.MathUtils.smoothstep(flight.station, .918, .996))
     : 0;
-  const panorama = opening ? .62 : offshore * THREE.MathUtils.clamp(centerAngle, -.94, .94);
+  const panorama = opening ? .62 : offshore * centerAngle;
   const orbit = heading + lookYaw + panorama;
   const orbitHeight = Math.max(1, eyeHeight + lookPitch * 28);
   desiredCamera.set(
