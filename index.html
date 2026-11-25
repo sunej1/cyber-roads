@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#121322">
+    <meta name="description" content="Fly a hovercar through the neon streets and open waters of Meridian City.">
+    <title>Afterhour — Meridian City</title>
+  </head>
+  <body>
+    <main id="game" aria-label="Afterhour flying game" data-mode="ready">
+      <canvas id="view" aria-label="3D view of Meridian City"></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>AFTERHOUR</span></div>
+        <div class="flight-state"><span class="status-dot"></span><span id="state">System ready</span></div>
+        <div class="top-actions">
+          <button id="camera" class="icon-button" type="button" aria-label="Switch camera" title="Switch camera (C)" hidden><span class="camera-icon"></span></button>
+          <button id="pause" class="icon-button" type="button" aria-label="Pause flight" title="Pause (Esc)" hidden><span class="pause-icon"></span></button>
+        </div>
+      </header>
+
+      <section id="menu" class="launch frame" aria-labelledby="launch-title">
+        <div class="launch-inner">
+          <p class="location"><span aria-hidden="true"></span> Meridian City <span class="location-divider">/</span> 22:47</p>
+          <h1 id="launch-title">AFTER<span>HOUR</span></h1>
+          <p id="menu-copy" class="intro">Thread the towers, skim the gardens, and follow the coast into open sky.</p>
+          <div class="launch-actions">
+            <button id="tour" class="action primary" type="button"><span>Start guided flight</span><span aria-hidden="true">↗</span></button>
+            <button id="manual" class="action secondary" type="button"><span>Fly manually</span><span aria-hidden="true">↗</span></button>
+            <button id="restart" class="text-button" type="button" hidden>Restart at Harbor Approach</button>
+          </div>
+          <p id="unsupported" class="notice" role="alert" hidden></p>
+        </div>
+      </section>
+
+      <aside class="route-panel frame" aria-labelledby="route-title">
+        <div class="panel-label"><h2 id="route-title">Flight route</h2><span id="route-length"></span></div>
+        <canvas id="map" width="472" height="254" aria-label="Map of the Meridian City flight loop" role="img"></canvas>
+        <ol id="districts" class="districts"></ol>
+        <div class="route-footer"><span class="status-dot"></span><span id="route-progress">Harbor Approach</span></div>
+      </aside>
+
+      <section class="hud" aria-label="Flight instruments" hidden>
+        <div class="hud-location">
+          <span class="small-label">Current sector</span>
+          <strong id="sector">Harbor Approach</strong>
+          <span id="sector-description">South breakwater</span>
+        </div>
+        <div class="gauges">
+          <div class="gauge"><span class="small-label">Speed</span><div><strong id="speed">000</strong><span> km/h</span></div></div>
+          <div class="gauge"><span class="small-label">Altitude</span><div><strong id="altitude">121</strong><span> m</span></div></div>
+        </div>
+        <div class="hud-actions">
+          <p id="warning" role="status" hidden><span aria-hidden="true">△</span> Flight path blocked</p>
+          <button id="recover" class="hud-button" type="button"><kbd>R</kbd> Return to route</button>
+          <button id="mode" class="hud-button" type="button"><kbd>V</kbd> Take control</button>
+        </div>
+      </section>
+
+      <footer class="controls" aria-label="Keyboard controls">
+        <span><kbd>W</kbd><kbd>S</kbd> Throttle / brake</span>
+        <span><kbd>A</kbd><kbd>D</kbd> Steer</span>
+        <span><kbd>Space</kbd><kbd>Ctrl</kbd> Climb / descend</span>
+        <span><kbd>Shift</kbd> Boost</span>
+        <span class="optional-control"><kbd>C</kbd> Camera</span>
+        <span class="optional-control"><kbd>Esc</kbd> Pause</span>
+      </footer>
+      <div class="touch-controls" id="touch" aria-label="Touch flight controls" hidden>
+        <div><button type="button" data-input="left" aria-label="Steer left">←</button><button type="button" data-input="right" aria-label="Steer right">→</button></div>
+        <div><button type="button" data-input="rise" aria-label="Climb">▲</button><button type="button" data-input="sink" aria-label="Descend">▼</button></div>
+        <div><button type="button" data-input="throttle" aria-label="Accelerate">GO</button><button type="button" data-input="brake" aria-label="Brake">STOP</button></div>
+      </div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
