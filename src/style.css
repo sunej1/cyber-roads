@@ -330,3 +330,11 @@ kbd {
   .controls { height: 41px; }
   .hud { bottom: 49px; }
 }
+
+@media (max-width: 410px) {
+  .brand { gap: 7px; font-size: 12px; letter-spacing: .08em; }
+  .flight-state { padding: 7px; }
+  .top-actions { gap: 4px; }
+  .icon-button { width: 31px; height: 32px; }
+  .controls > span:nth-child(4) { display: none; }
+}
