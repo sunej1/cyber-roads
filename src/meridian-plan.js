@@ -3,6 +3,17 @@ export const blockDepth = 125;
 export const park = { x: 10, z: 105, w: 228, d: 174 };
 export const plaza = { x: -220, z: 355, w: 142, d: 135 };
 
+export const gardenWalks = [
+  { x: -68, z: 12, toX: -68, toZ: 196, width: 8, walkers: 6 },
+  { x: 68, z: 12, toX: 68, toZ: 196, width: 8, walkers: 6 },
+  { x: -109, z: 62.5, toX: 131, toZ: 62.5, width: 10, walkers: 7 },
+  { x: -109, z: 187.5, toX: 131, toZ: 187.5, width: 6, walkers: 4 },
+  { x: 0, z: 62.5, toX: 0, toZ: 187.5, width: 10 },
+  { x: -68, z: 125, toX: 68, toZ: 125, width: 7 },
+];
+
+export const gardenBasins = [-33, 33].flatMap(x => [94, 156].map(z => ({ x, z, w: 45, d: 39 })));
+
 export const shore = [
   [-1080, 560], [-1040, 100], [-980, -490], [-718, -805], [-440, -995],
   [15, -1020], [440, -940], [720, -680], [705, -310], [622, -80],
