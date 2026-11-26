@@ -4,7 +4,7 @@ import { towers, facadeColors, structural, trim } from './architecture.js';
 import { setScreenTime } from './ads.js';
 import { generateBuildings, park, plaza, randomFor, shore } from './flight.js';
 import { airCircuits, streetRuns } from './traffic.js';
-import { gardenBasins, gardenWalks, harborMarket, streetPoint, streets as streetGrid } from './meridian-plan.js';
+import { gardenBasins, gardenWalks, harborMarket, lanternMile, streetPoint, streets as streetGrid } from './meridian-plan.js';
 import { addMovingTraffic } from './street-life.js';
 import { coreTile, districtForPosition, groundAt, riverAt, streetVertex, tileAt, tileSize } from './extent.js';
 import { generateTile, localTraffic } from './world.js';
@@ -13,6 +13,7 @@ import { detailHierarchy } from './detail-selection.js';
 import { streetDetails } from './streetscape.js';
 import { addStreetLamps, streetLighting } from './street-lighting.js';
 import { addPlants, plant, windTime } from './vegetation.js';
+import { addLanternMile } from './lantern-mile.js';
 
 const { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial }=THREE;
 const lightColors=['#ffc479','#62d8ed','#ff785c','#e4b154','#fff1a4','#add27e'];
@@ -404,6 +405,7 @@ function ground(scene, buildings, waterTime) {
     else lamps.push([x, 1.5, z, 1.15, .7, 1.15]);
   }
 
+  addLanternMile(scene,buildings,lamps,spill);
   batch(scene, box, asphalt, streets);
   batch(scene, box, stone, curbs);
   batch(scene, box, paintedLines, paint);
@@ -451,6 +453,10 @@ function mountains(scene) {
 }
 
 const harborWalks = [[-300,-225],[-182,16]];
+const lanternWalks=lanternMile.blocks.flatMap(([start,end])=>[-1,1].map(side=>{
+  const x=lanternMile.x+side*(lanternMile.road.width/2+1.4);
+  return [x,start+4,x,end-4,Math.round((end-start)/9)];
+}));
 const footpaths = [
   [-286, 308, -286, 400, 8], [-153, 310, -153, 406, 8],
   [-271, 409, -168, 409, 9], [-269, 302, -170, 302, 7],
@@ -465,6 +471,7 @@ const footpaths = [
       ...streetPoint(road,start+5,-road.width/2-1.6),...streetPoint(road,end-5,-road.width/2-1.6),
       Math.round((end-start)/35),
     ])),
+  ...lanternWalks,
 ];
 
 const distantTowers = new MeshStandardMaterial({ roughness: .87 });

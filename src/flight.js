@@ -1,11 +1,11 @@
 import { CatmullRomCurve3, Vector3, MathUtils } from 'three';
 import { closestSpine, coreEdge, makeDeparture, spinePoint } from './extent.js';
-import { harborMarket, isOnLand, park, plaza, streetPoint, streets } from './meridian-plan.js';
+import { harborMarket, isOnLand, lanternMile, park, plaza, streetPoint, streets } from './meridian-plan.js';
 export { park, plaza, shore } from './meridian-plan.js';
 
 export const districts = [
   { name: 'Harbor Approach', description: 'South breakwater', point: 0, color: '#65eddf' },
-  { name: 'Lantern Mile', description: 'Downtown tower canyon', point: 2, color: '#ff73bd' },
+  { name: 'Lantern Mile', description: 'Night market and tower canyon', point: 2, color: '#ff73bd' },
   { name: 'Glass Gardens', description: 'Civic square and public park', point: 5, color: '#a2f4ba' },
   { name: 'Crown Heights', description: 'Tower canyon and transit decks', point: 9, color: '#bc9bff' },
   { name: 'Westbank', description: 'Market streets and old warehouses', point: 15, color: '#ffbc86' },
@@ -211,6 +211,11 @@ export function generateBuildings() {
     const [x,z]=streetPoint(road,along,side*(road.width/2+streetGap+d/2));
     return { x,z,w,d,yaw:road.yaw-side*Math.PI/2,frontage:true,streetGap };
   };
+  const limitToGuide = building => {
+    for (const point of routeSamples) {
+      if (intersectsBuilding(point,building,22)) building.h=point.y-23;
+    }
+  };
 
   const landmarks = [
     { x: -132, z: 803, w: 71, d: 56, h: 158, type: 14, sign: 'NOCTURNE', style: 2 },
@@ -264,9 +269,7 @@ export function generateBuildings() {
     const low=port || westbank || civic || narrow;
     building.h=low ? 16+random()*(civic?36:27)
       : 31+random()*36+Math.max(0,1-hubs*.60)*(highStreet?138:54);
-    for (const point of routeSamples) {
-      if (intersectsBuilding(point,building,22)) building.h=point.y-23;
-    }
+    limitToGuide(building);
     const {h}=building;
     const pool=h<32?[13,14,15,16]:westbank?[10,11,13,15,16]:port?[11,13,15,16]:
       civic?[1,3,4,7,12,13,15]:h<75?[0,1,2,3,13,15,16]:[0,1,2,3,4,5,6,7,8,9];
@@ -286,6 +289,34 @@ export function generateBuildings() {
         const d=(narrow?18:33)+random()*(narrow?11:23);
         if (w>=(narrow?16:28)) infill(road,at,side,w,d,narrow);
       }
+    }
+  }
+
+  const { road:marketRoad, blocks }=lanternMile;
+  for (let i=buildings.length-1;i>=0;i--) {
+    const b=buildings[i], facing=Math.sin(b.yaw);
+    if (b.z-b.w/2<lanternMile.start || b.z+b.w/2>lanternMile.end || Math.abs(facing)<.999) continue;
+    const roadCenter=b.x+facing*(b.d/2+b.streetGap+marketRoad.width/2);
+    if (Math.abs(roadCenter-marketRoad.x)>.01) continue;
+    if (b.sign) b.nightMarket=true;
+    else buildings.splice(i,1);
+  }
+  const marketRandom=randomFor(54911);
+  for (const [start,end] of blocks) {
+    const count=Math.floor((end-start)/22);
+    const span=(end-start)/count;
+    for (const side of [-1,1]) for (let i=0;i<count;i++) {
+      const at=start+span*(i+.5)-marketRoad.z;
+      const d=26+marketRandom()*10, w=span-6.5-marketRandom()*2.3;
+      const gap=7+marketRandom()*4;
+      const b=[d,20,12,10].map(depth=>onFrontage(marketRoad,at,side,w,depth,depth<20?6:gap)).find(canPlace);
+      if (!b) continue;
+      b.h=38+marketRandom()*38+(i%3===1?22:0);
+      if (b.d<20) b.h=Math.min(b.h,31+marketRandom()*16);
+      limitToGuide(b);
+      const type=[0,1,3,13,14][Math.floor(marketRandom()*5)];
+      const style=[0,1,2,4,5][Math.floor(marketRandom()*5)];
+      buildings.push({ ...b,type,style,retail:true,nightMarket:true });
     }
   }
   return buildings;

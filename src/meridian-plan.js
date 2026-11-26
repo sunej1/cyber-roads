@@ -3,6 +3,7 @@ const blockDepth = 125;
 export const park = { x: 10, z: 105, w: 228, d: 174 };
 export const plaza = { x: -220, z: 355, w: 142, d: 135 };
 export const harborMarket = { x: -145, z: 901, w: 330, d: 24 };
+export const lanternMile = { x: -204, start: 447, end: 804 };
 
 export const gardenWalks = [
   { x: -68, z: 12, toX: -68, toZ: 196, width: 8, walkers: 6 },
@@ -140,3 +141,9 @@ for (const road of streets) {
   road.sections=sectionsBetweenJunctions(road);
   road.markedSections=sectionsBetweenJunctions(road,road.width/2+3);
 }
+
+lanternMile.road=streets.find(road=>road.x===lanternMile.x && road.dx===0
+  && road.z<=lanternMile.start && road.toZ>=lanternMile.end);
+lanternMile.blocks=lanternMile.road.sections
+  .map(([start,end])=>[Math.max(start+lanternMile.road.z,lanternMile.start),Math.min(end+lanternMile.road.z,lanternMile.end)])
+  .filter(([start,end])=>end-start>=22);
