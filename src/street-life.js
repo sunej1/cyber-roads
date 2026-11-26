@@ -29,10 +29,11 @@ function colorGeometry(geometry, color) {
   return geometry;
 }
 
-function taperedBox(roofWidth, roofLength) {
+function taperedBox(roofWidth, roofLength, noseWidth) {
   const geometry = box.clone();
   const vertices = geometry.attributes.position;
   for (let i = 0; i < vertices.count; i++) {
+    if (vertices.getZ(i) < 0) vertices.setX(i, vertices.getX(i) * noseWidth);
     if (vertices.getY(i) > 0) {
       vertices.setX(i, vertices.getX(i) * roofWidth);
       vertices.setZ(i, vertices.getZ(i) * roofLength);
@@ -50,33 +51,34 @@ const rearLens = mergeGeometries([
 ]);
 const frontLens = rearLens.clone().rotateY(Math.PI);
 
+const liftPod = taperedBox(.75, .95, .57);
 const airframe = shape(
-  [shuttle, 0, -.06, -.65, 1.65, .78, 3.835],
-  [box, -.99, -.20, 1.02, 1.68, .54, 4.44],
-  [box, .99, -.20, 1.02, 1.68, .54, 4.44],
+  [shuttle, 0, -.07, -.68, 1.63, .65, 3.80],
+  [liftPod, -1.25, -.18, 1.25, 1.15, .66, 4.04],
+  [liftPod, 1.25, -.18, 1.25, 1.15, .66, 4.04],
 );
-const flightDeck = shape([shuttle, 0, .73, -.66, 1.31, 1.05, 2.42]);
+const flightDeck = shape([shuttle, 0, .45, -.72, 1.29, .74, 3.68]);
 const thrustPorts = shape(
-  [rearLens, -1.27, -.21, 3.24, .72, .24, .16],
-  [rearLens, 1.27, -.21, 3.24, .72, .24, .16],
+  [rearLens, -1.25, -.18, 3.26, .78, .25, .18],
+  [rearLens, 1.25, -.18, 3.26, .78, .25, .18],
 );
 const landingLights = shape(
   [frontLens, -.62, .02, -4.24, .40, .19, .49],
   [frontLens, .62, .02, -4.24, .40, .19, .49],
 );
 
-const chassis = taperedBox(.93, .97).scale(2.49, .76, 5).translate(0, -.09, 0);
+const chassis = taperedBox(.95, .95, .81).scale(2.49, .71, 5).translate(0, -.10, 0);
 const cabin = shape(
-  [taperedBox(.72, .70), 0, .54, .12, 2.0, .66, 2.60],
-  [box, 0, -.34, 0, 2.12, .24, 4.43],
+  [taperedBox(.63, .64, .90), 0, .48, .32, 2.16, .55, 2.94],
+  [taperedBox(1, 1, .85), 0, -.38, 0, 2.26, .20, 4.53],
 );
 const headlights = shape(
-  [frontLens, -.79, .04, -2.31, .48, .19, .49],
-  [frontLens, .79, .04, -2.31, .48, .19, .49],
+  [frontLens, -.79, .07, -2.31, .54, .15, .49],
+  [frontLens, .79, .07, -2.31, .54, .15, .49],
 );
 const tailLights = shape(
-  [rearLens, -.84, -.04, 2.32, .39, .20, .48],
-  [rearLens, .84, -.04, 2.32, .39, .20, .48],
+  [rearLens, -.83, .01, 2.32, .56, .14, .48],
+  [rearLens, .83, .01, 2.32, .56, .14, .48],
 );
 const roadLights = mergeGeometries([
   colorGeometry(headlights, white.color),
