@@ -3,8 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { randomFor } from './flight.js';
 import { box, neon } from './scene-parts.js';
 
-const shuttle = new THREE.CylinderGeometry(.79, 1, 1, 6);
-const car = new THREE.CylinderGeometry(.72, 1, 1, 8, 1, false, Math.PI / 8);
+const shuttle = new THREE.CylinderGeometry(.79, 1, 1, 6, 1, false, Math.PI / 6)
+  .scale(1, 1, 1 / Math.cos(Math.PI / 6));
 const person = new THREE.CylinderGeometry(.55, .8, 1, 5).scale(.53, 1.55, .44);
 const white = neon('#fff0be', 3.3);
 const roadLamps = new THREE.MeshBasicMaterial({ vertexColors: true });
@@ -29,39 +29,54 @@ function colorGeometry(geometry, color) {
   return geometry;
 }
 
+function taperedBox(roofWidth, roofLength) {
+  const geometry = box.clone();
+  const vertices = geometry.attributes.position;
+  for (let i = 0; i < vertices.count; i++) {
+    if (vertices.getY(i) > 0) {
+      vertices.setX(i, vertices.getX(i) * roofWidth);
+      vertices.setZ(i, vertices.getZ(i) * roofLength);
+    }
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Keep the outward face and the surfaces seen from above and in road reflections.
+const rearLens = mergeGeometries([
+  new THREE.PlaneGeometry().translate(0, 0, .5),
+  new THREE.PlaneGeometry().rotateX(-Math.PI / 2).translate(0, .5, 0),
+  new THREE.PlaneGeometry().rotateX(Math.PI / 2).translate(0, -.5, 0),
+]);
+const frontLens = rearLens.clone().rotateY(Math.PI);
+
 const airframe = shape(
-  [shuttle, 0, 0, -.29, 1.65, .92, 4.16],
-  [box, 0, -.07, -3.71, 1.59, .39, 1.19],
+  [shuttle, 0, -.06, -.65, 1.65, .78, 3.835],
   [box, -.99, -.20, 1.02, 1.68, .54, 4.44],
   [box, .99, -.20, 1.02, 1.68, .54, 4.44],
-  [car, 0, .37, 2.49, .71, .55, 1.24],
 );
 const flightDeck = shape([shuttle, 0, .73, -.66, 1.31, 1.05, 2.42]);
 const thrustPorts = shape(
-  [box, -1.27, -.21, 3.24, .72, .24, .16],
-  [box, 1.27, -.21, 3.24, .72, .24, .16],
+  [rearLens, -1.27, -.21, 3.24, .72, .24, .16],
+  [rearLens, 1.27, -.21, 3.24, .72, .24, .16],
 );
 const landingLights = shape(
-  [box, -.62, .02, -4.24, .40, .19, .49],
-  [box, .62, .02, -4.24, .40, .19, .49],
+  [frontLens, -.62, .02, -4.24, .40, .19, .49],
+  [frontLens, .62, .02, -4.24, .40, .19, .49],
 );
 
-const chassis = shape(
-  [car, 0, -.09, 0, 1.35, .76, 2.63],
-  [box, 0, -.10, -2.23, 2.13, .36, .47],
-  [box, 0, -.13, 2.25, 2.19, .38, .46],
-);
+const chassis = taperedBox(.93, .97).scale(2.49, .76, 5).translate(0, -.09, 0);
 const cabin = shape(
-  [car, 0, .54, .12, 1.08, .66, 1.41],
+  [taperedBox(.72, .70), 0, .54, .12, 2.0, .66, 2.60],
   [box, 0, -.34, 0, 2.12, .24, 4.43],
 );
 const headlights = shape(
-  [box, -.79, .04, -2.31, .48, .19, .49],
-  [box, .79, .04, -2.31, .48, .19, .49],
+  [frontLens, -.79, .04, -2.31, .48, .19, .49],
+  [frontLens, .79, .04, -2.31, .48, .19, .49],
 );
 const tailLights = shape(
-  [box, -.84, -.04, 2.32, .39, .20, .48],
-  [box, .84, -.04, 2.32, .39, .20, .48],
+  [rearLens, -.84, -.04, 2.32, .39, .20, .48],
+  [rearLens, .84, -.04, 2.32, .39, .20, .48],
 );
 const roadLights = mergeGeometries([
   colorGeometry(headlights, white.color),
