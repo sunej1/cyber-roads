@@ -1,117 +1,12 @@
 import * as THREE from 'three';
 import { randomFor } from './flight.js';
 import { addScreens, campaignFor } from './ads.js';
-import { batch, beam, box, line, neon, texture } from './scene-parts.js';
-import { drawSurface, surfaceMap } from './surface-materials.js';
+import { batch, beam, box, line, neon } from './scene-parts.js';
+import { facadeMaterial, finishes } from './facade-finishes.js';
 import { facadeClusters } from './streetscape.js';
-import { addWindowInteriors } from './window-interiors.js';
 
 const { Mesh, MeshStandardMaterial } = THREE;
-const glassPalettes = [
-  ['#343b3d', '#515650', ['#ffd99b', '#d9b88d', '#92a6a4'], 12, 7, .23],
-  ['#182a32', '#35505a', ['#aceaee', '#6fa6b9', '#d0e2d7'], 8, 11, .37],
-  ['#292125', '#654143', ['#ff9192', '#f4ba8c', '#e0b6a4'], 6, 9, .32],
-  ['#2d2a25', '#4c4a3c', ['#f8b468', '#b89b60', '#ddd0a3'], 6, 6, .32],
-  ['#292d32', '#6a6560', ['#ffd37d', '#e4ddd0', '#91afb3'], 14, 10, .26],
-  ['#222e31', '#415048', ['#b7cb7a', '#b2dbaa', '#e3e9b1'], 5, 10, .36],
-];
-const facadeMaterials = [];
-export const facadeColors = glassPalettes.map(([color]) => color);
-
-function facadeMaterial(style) {
-  if (facadeMaterials[style]) return facadeMaterials[style];
-  const [base, frame, lights, cols, rows, activity] = glassPalettes[style];
-  const concrete = style === 0 || style === 3 || style === 4;
-  const inset=style===0?.24:style===1?.064:.15;
-  const widthRepeat=style===1?29:38, heightRepeat=style===4?37:29;
-  const sample = style===3 ? 2 : concrete ? 0 : 1;
-  const makeMap = channel => {
-    const emission=channel==='emission';
-    const relief=channel==='height';
-    const rough=channel==='roughness';
-    const paint=ctx=>{
-      const random=randomFor(900+style);
-      const size=ctx.canvas.width;
-      ctx.fillStyle=emission?'#000':relief?'#8a8a8a':rough?'#e1e1e1':base;
-      ctx.fillRect(0,0,size,size);
-      if (!emission && !rough) {
-        ctx.save();
-        ctx.globalAlpha=relief ? .49 : .89;
-        if (relief) ctx.filter='grayscale(1) contrast(1.18) brightness(1.27)';
-        drawSurface(ctx,sample);
-        ctx.restore();
-      }
-      const w=size/cols, h=size/rows;
-      for (let row=0;row<rows;row++) {
-        const y=row*h;
-        const slab=concrete?.29:row%4===2?.21:.115;
-        const floorUse=random();
-        const floorActivity=activity*(floorUse<.30?.25:floorUse>.73?1.65:1.0);
-        if (!emission && !rough) {
-          ctx.fillStyle=relief?'#acacac':frame+'42';
-          ctx.fillRect(0,y,size,h*slab);
-          ctx.fillStyle=relief?'#4a4a4a':'#0b121380';
-          ctx.fillRect(0,y+h*slab-2.4,size,2.8);
-          ctx.fillStyle=relief?'#bcbcbc':'#d8d7c33c';
-          ctx.fillRect(0,y+1,size,1.8);
-        }
-        for (let col=0;col<cols;col++) {
-          const x=col*w,active=random()<floorActivity,glow=lights[Math.floor(random()*lights.length)];
-          const shade=random();
-          const open=w*(1-inset*2),left=x+w*inset;
-          const top=y+h*slab+h*.056,tall=h*(.83-slab);
-          if (!emission && !rough) {
-            ctx.fillStyle=relief?'#bababa':'#a6ab9b6b';
-            ctx.fillRect(left-3,top-2,open+6,tall+5);
-            ctx.fillStyle=relief?'#646464':'#101415';
-            ctx.fillRect(left-1,top-1,open+2,tall+2);
-            if (!relief && concrete && shade<.6) {
-              const runoff=ctx.createLinearGradient(0,top+tall,0,top+tall+h*.37);
-              runoff.addColorStop(0,'#080c126d');
-              runoff.addColorStop(1,'#080c1200');
-              ctx.fillStyle=runoff;
-              ctx.fillRect(left+shade*open,top+tall,1+shade*w*.17,h*.37);
-            }
-          }
-          if (emission && !active) continue;
-          if (relief || rough) ctx.fillStyle=relief?'#303030':shade>.7?'#5a5a5a':'#353535';
-          else {
-            const pane=ctx.createLinearGradient(0,top,0,top+tall);
-            pane.addColorStop(0,emission?glow:active?'#475459':'#334557');
-            pane.addColorStop(.52,emission?glow:active?'#364642':'#19282e');
-            pane.addColorStop(1,emission?'#19150f':'#080e16');
-            ctx.fillStyle=pane;
-          }
-          if (emission) ctx.globalAlpha=.57+shade*.43;
-          ctx.fillRect(left,top,open,tall);
-          ctx.globalAlpha=1;
-          ctx.fillStyle=relief?'#9a9a9a':rough?'#929292':emission?'#17100a9e':frame;
-          ctx.fillRect(x+w*.51,top,Math.max(1.3,w*.045),tall);
-          if (!emission && !relief && !rough && shade>.62) {
-            ctx.fillStyle='#121c21a0';
-            ctx.fillRect(left+open*.73,top,open*.24,tall);
-          }
-        }
-      }
-    };
-    if (emission || rough) {
-      const map=texture(512,512,paint);
-      map.wrapS=map.wrapT=THREE.RepeatWrapping;
-      if (rough) map.colorSpace=THREE.NoColorSpace;
-      return map;
-    }
-    return surfaceMap(1024,paint,relief);
-  };
-  const material = new MeshStandardMaterial({
-    map:makeMap('color'), emissiveMap:makeMap('emission'), bumpMap:makeMap('height'), roughnessMap:makeMap('roughness'),
-    emissive:'#ffffff', emissiveIntensity:.68, bumpScale:concrete?.075:.044, roughness:1,
-    metalness:concrete?.07:.32,
-  });
-  addWindowInteriors(material,new THREE.Vector4(cols,rows,widthRepeat/cols,heightRepeat/rows),
-    new THREE.Vector3(Number(concrete),inset,(style+1)*31.7));
-  facadeMaterials[style] = material;
-  return material;
-}
+export const facadeColors = finishes.map(({ base }) => base);
 
 function profile(x, z, w, d, bevel, sides = 0, phase = 0) {
   if (sides) return Array.from({length:sides}, (_,i) => {
@@ -148,28 +43,25 @@ const roof = new MeshStandardMaterial({ color: '#3c4140', roughness: .77, metaln
 function addFacades(scene, slices) {
   const roofs = [];
   const detailFaces = [];
-  glassPalettes.forEach((_, style) => {
+  finishes.forEach(({ grid:[cols,rows], repeat:[width,rise] }, style) => {
     const vertices = [], uv = [];
-    const [, , ,cols,rows]=glassPalettes[style];
-    const concrete=style===0 || style===3 || style===4;
     for (const { x, z, w, d, base, h, topW, topD, topX, topZ, bevel, sides, phase, twist, windowOffset, building } of slices[style]) {
       const lower = profile(x,z,w,d,bevel,sides,phase).map(([x,z])=>turn(x,z,building));
       const upper = profile(topX,topZ,topW,topD,bevel,sides,phase+twist).map(([x,z])=>turn(x,z,building));
       const [roofX,roofZ] = turn(topX,topZ,building);
       const low = base, top = base + h;
-      const rise = style === 4 ? 37 : 29;
       const v = h / rise, v0 = windowOffset * 3.3 + base / rise;
       for (let i = 0; i < lower.length; i++) {
         const j = (i + 1) % lower.length;
         const [ax, az] = lower[i], [bx, bz] = lower[j], [cx, cz] = upper[j], [dx, dz] = upper[i];
-        const u = Math.hypot(bx - ax, bz - az) / (style === 1 ? 29 : 38);
+        const u = Math.hypot(bx - ax, bz - az) / width;
         const u0 = windowOffset + i * .29;
         vertices.push(ax,low,az, bx,low,bz, dx,top,dz, bx,low,bz, cx,top,cz, dx,top,dz);
         uv.push(u0,v0, u0+u,v0, u0,v0+v, u0+u,v0, u0+u,v0+v, u0,v0+v);
         roofs.push(roofX,top,roofZ, dx,top,dz, cx,top,cz);
         const facing=(az-bz)*Math.sin(building.yaw??0)+(bx-ax)*Math.cos(building.yaw??0);
         if (low<169) detailFaces.push({
-          ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,concrete,style,index:i,
+          ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,style,index:i,
           storefront:building.frontage ? building.retail && facing>Math.hypot(bx-ax,bz-az)*.67 : undefined,
           b:{ h:building.h,type:building.type,seed:(Math.imul(Math.round(building.x*23),0x45d9f3b)
             ^ Math.imul(Math.round(building.z*31),0x119de1f3)) >>> 0 },
@@ -194,7 +86,7 @@ function addFacades(scene, slices) {
 
 export const trim = new MeshStandardMaterial({ color: '#484847', roughness: .81, metalness: .26 });
 export const structural = new MeshStandardMaterial({ color: '#313838', roughness: .91 });
-const lightColors = ['#ffc479', '#62d8ed', '#ff785c', '#e4b154', '#fff1a4', '#add27e'];
+const lightColors = ['#ffa35e', '#56dcff', '#ff6090', '#f9a735', '#ffdb84', '#a6e99a'];
 const towerNeon = lightColors.map(color => neon(color, 2));
 const beacon = neon('#ff5f37', 2.6);
 
@@ -210,8 +102,75 @@ const panels = new MeshStandardMaterial({ roughness: .68, metalness: .32 });
 const glass = new MeshStandardMaterial({ color: '#2b4148', roughness: .29, metalness: .6, emissive: '#789ba0', emissiveIntensity: .16 });
 const pipeMetal = new MeshStandardMaterial({ roughness: .64, metalness: .44 });
 
+function facadeStructure(form, solids, lights) {
+  const {x,z,w,d,topX,topZ,topW,topD,base,h,bevel,sides,building:b} = form;
+  const minimumHeight=b.style===3 ? 12 : b.style===5 ? 21 : 32;
+  if (sides || h < minimumHeight || b.type === 11 || b.type === 12) return;
+  const lower = profile(x,z,w,d,bevel);
+  const upper = profile(topX,topZ,topW,topD,bevel);
+  // Ordinary buildings get geometry on two sides. Their cladding carries the style around the back.
+  const faceCount=b.h >= 106 || b.sign ? 4 : 2;
+  const step=bevel ? 2 : 1;
+  for (let i=0; i<faceCount*step; i+=step) {
+    const j=(i+1)%lower.length;
+    const [ax,az]=lower[i], [bx,bz]=lower[j], [cx,cz]=upper[j], [dx,dz]=upper[i];
+    const span=Math.hypot(bx-ax,bz-az);
+    if (span < 15) continue;
+    const across=new THREE.Vector3((bx-ax)/span,0,(bz-az)/span);
+    const rise=new THREE.Vector3((dx+cx-ax-bx)*.5,h,(dz+cz-az-bz)*.5);
+    rise.addScaledVector(across,-rise.dot(across)).normalize();
+    const outward=new THREE.Vector3().crossVectors(across,rise);
+    const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across,rise,outward));
+    const part=(items, along, bottom, top, width, depth, color, offset=.2)=>{
+      const y=(bottom+top)*.5;
+      const px=THREE.MathUtils.lerp(ax+(bx-ax)*along,dx+(cx-dx)*along,y)+outward.x*offset;
+      const pz=THREE.MathUtils.lerp(az+(bz-az)*along,dz+(cz-dz)*along,y)+outward.z*offset;
+      items.push([px,base+h*y+outward.y*offset,pz,width,h*(top-bottom)/rise.y,depth,rotation.clone(),color]);
+    };
+    switch (b.style) {
+      case 0:
+        for (const along of [.12,.88]) {
+          part(solids,along,.07,.97,Math.min(span*.087,5.2),1.6,'#9d9783');
+          part(lights,along,.79,.94,.27,.16,undefined,1.3);
+        }
+        break;
+      case 1:
+        part(solids,.77,.08,.97,Math.min(span*.086,3.8),.85,'#346473');
+        part(lights,.77,.19,.83,.34,.18,undefined,.68);
+        if (h > 85) part(lights,.50,.948,.953,span*.63,.18,undefined,.62);
+        break;
+      case 2:
+        if (b.type === 14) break;
+        for (const [along,y] of [[.27,.31],[.70,.68]]) {
+          part(solids,along,y,y+.018,span*.34,1.65,'#a75e55',.48);
+          part(solids,along,y+.021,y+.049,span*.31,.23,'#6d827f',1.28);
+          part(lights,along,y-.004,y,span*.25,.12,undefined,1.21);
+        }
+        break;
+      case 3:
+        part(solids,.74,.29,.91,Math.min(span*.20,7.1),1.25,'#897e58');
+        for (const along of [.69,.74,.79]) part(solids,along,.36,.88,.43,.31,'#b7ab82',1);
+        part(lights,.74,.42,.61,.28,.14,undefined,1.23);
+        break;
+      case 4:
+        for (const [along,top] of [[.19,.83],[.5,.97],[.81,.83]]) {
+          part(solids,along,.03,top,Math.min(span*.089,4.9),1.28,'#baa58a');
+          if (along === .5) part(lights,along,top-.22,top-.027,.25,.18,undefined,1.13);
+        }
+        break;
+      case 5:
+        for (const y of [.32,.68]) {
+          part(solids,.5,y,y+.034,span*.74,1.68,'#658570',.45);
+          part(solids,.5,y+.032,y+.065,span*.72,.27,'#94a379',1.14);
+          if (h > 23) part(lights,.5,y+.010,y+.016,span*.67,.17,undefined,1.32);
+        }
+        break;
+    }
+  }
+}
+
 export function towers(scene, buildings, local = false) {
-  const slices = glassPalettes.map(() => []);
+  const slices = finishes.map(() => []);
   const caps = [], ribs = [], ledges = [], beacons = [], vents = [], glazing = [], rounds = [], domes = [], slopeRoofs = [];
   const screens = new Map(), plaques = new Map();
   const lights = lightColors.map(() => []);
@@ -394,8 +353,8 @@ export function towers(scene, buildings, local = false) {
             for (const k of [-1,0,1]) {
               if ((Math.floor(y/5)+k+index)%5===0) continue;
               const x=b.x+k*b.w*.247;
-              caps.push([x,y,z,b.w*.241,.49,3.15]);
-              ledges.push([x,y+.83,z+side*1.56,b.w*.227,.85,.20]);
+              vents.push([x,y,z,b.w*.241,.49,3.15,0,'#92635b']);
+              vents.push([x,y+.83,z+side*1.56,b.w*.227,.85,.20,0,'#68837d']);
               if (random()<.30) vents.push([x+b.w*.06,y+1.04,z-side*.38,1.55,.88,.8,0,'#686967']);
             }
           }
@@ -416,8 +375,22 @@ export function towers(scene, buildings, local = false) {
         vents.push([b.x+b.w*.12,b.h*.86,b.z+b.d*.20,1.15,3.4,1.60,0,'#656354']);
         break;
       default:
-        top = segment(0,1,1,1,{ bevel: b.h > 72 && index % 4 === 0 ? .07 : 0 });
+        if (b.h > 48 && b.style === 4) {
+          segment(0,.16,1,1);
+          segment(.16,.81,.87,.86,{bevel:.06});
+          segment(.81,.94,.71,.68,{bevel:.08});
+          top=segment(.94,1,.43,.44,{bevel:.12});
+        } else if (b.h > 48 && b.style === 5) {
+          segment(0,.15,1,1,{bevel:.07});
+          segment(.15,.85,.88,.91,{bevel:.12});
+          top=segment(.85,1,.82,.83,{bevel:.19,topW:.67,topD:.63});
+          band(b.h*.85,b.w*.89,b.d*.92);
+        } else {
+          top = segment(0,1,1,1,{ bevel: b.h > 72 && index % 4 === 0 ? .07 : 0 });
+        }
     }
+    const main=levels.reduce((largest,level)=>level.h*level.w > largest.h*largest.w ? level : largest);
+    facadeStructure(main,vents,lit);
     const zFront = top.z + top.d / 2 + .55;
     const litVertical = b.sign || (b.h > 62 && index % 4 === 1);
     if (litVertical && b.type < 4) {

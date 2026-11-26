@@ -1,6 +1,6 @@
 const interiors = /* glsl */ `
   uniform vec4 roomBay;
-  uniform vec3 roomPanel;
+  uniform vec4 roomPanel;
 
   float roomHash(vec2 cell) {
     vec3 p=fract(vec3(cell.xyx)*.1031);
@@ -20,21 +20,19 @@ const interiors = /* glsl */ `
     vec3 surfaceX=dFdx(-view), surfaceY=dFdy(-view);
     float detail=1.0-smoothstep(.17,.40,max(length(changeX),length(changeY)));
     vec2 cell=floor(grid), pane=fract(grid);
-    float row=mod(cell.y,roomBay.y);
-    float slab=roomPanel.x>.5 ? .29 : mod(row,4.0)==2.0 ? .21 : .115;
-    vec2 start=vec2(roomPanel.y,slab+.056);
-    vec2 opening=vec2(1.0-2.0*start.x,.83-slab);
+    vec2 start=roomPanel.xy;
+    vec2 opening=vec2(1.0-2.0*start.x,roomPanel.z);
     vec2 at=(pane-start)/opening;
-    if (detail<=0.0 || any(lessThan(at,vec2(0.0))) || any(greaterThan(at,vec2(1.0)))
-        || (pane.x>=.51 && pane.x<=.555)) return;
+    // The roughness map also masks blank bays and mullions.
+    if (detail<=0.0 || rough>.50 || any(lessThan(at,vec2(0.0))) || any(greaterThan(at,vec2(1.0)))) return;
 
     float orientation=sign(changeX.x*changeY.y-changeX.y*changeY.x);
     vec3 across=normalize(surfaceX*changeY.y-surfaceY*changeX.y)*orientation;
     vec3 down=normalize(surfaceY*changeX.x-surfaceX*changeY.x)*orientation;
     vec3 aim=-normalize(view);
     float downGlass=clamp(-dot(aim,normal),.045,1.0);
-    float variant=roomHash(cell+roomPanel.zz);
-    float floorUse=roomHash(vec2(cell.y,roomPanel.z));
+    float variant=roomHash(cell+roomPanel.ww);
+    float floorUse=roomHash(vec2(cell.y,roomPanel.w));
     vec3 ray=vec3(dot(aim,across)/(opening.x*roomBay.z),dot(aim,down)/(opening.y*roomBay.w),
       downGlass/mix(2.05,4.5,variant));
     vec2 safeRay=mix(vec2(-1.0),vec2(1.0),step(0.0,ray.xy))*max(abs(ray.xy),vec2(.0001));
@@ -82,7 +80,7 @@ const interiors = /* glsl */ `
     }
     float shade=(1.0-smoothstep(shadeDepth-.018,shadeDepth+.018,at.y))*step(.02,shadeDepth);
     float louvers=.44+.56*smoothstep(.19,.47,fract(at.y*15.0));
-    vec2 lightSample=(cell+vec2(.39,start.y+opening.y*.27))/roomBay.xy;
+    vec2 lightSample=(cell+start+opening*vec2(.24,.30))/roomBay.xy;
     vec3 roomLight=textureLod(emissiveMap,vec2(lightSample.x,-lightSample.y),0.0).rgb;
     float through=1.0-pow(1.0-downGlass,2.65);
     vec3 inside=tint*roomLight*(brightness*(1.0-shade*.91) + shade*louvers*.06);

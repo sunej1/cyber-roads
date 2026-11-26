@@ -4,6 +4,7 @@ import { box, texture } from './scene-parts.js';
 import { randomFor } from './flight.js';
 import { weatheredConcrete } from './surface-materials.js';
 import { selectDetailClusters } from './detail-selection.js';
+import { finishes, hasWindow } from './facade-finishes.js';
 
 const up = new THREE.Vector3(0,1,0);
 const plane = new THREE.PlaneGeometry();
@@ -99,7 +100,7 @@ export function facadeClusters(faces) {
         add('store',(i+.5)*slot-width*.5,width,.02,5.8,{ seed,error:.92,fineRatio:.48,shop:seed%stores.length });
       }
     }
-    if (top-low<6 || low>167 || b.type===11 || b.type===12) continue;
+    if (!finishes[style].deep || top-low<6 || low>167 || b.type===11 || b.type===12) continue;
     const first=Math.max(6.5,low+.45);
     for (let floor=first;floor+3.5<top && floor<169;floor+=15) {
       const height=Math.min(15,top-floor);
@@ -116,7 +117,7 @@ export function facadeClusters(faces) {
 
 function partsFor(cluster, tier) {
   const { face,nx,nz,width,height,span,left,floor,yaw,style }=cluster;
-  const { ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,concrete }=face;
+  const { ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows }=face;
   const random=randomFor(cluster.seed);
   const parts=[];
   const part=(group, across, y, depth, w, h, d, color, angle=0)=>{
@@ -187,23 +188,23 @@ function partsFor(cluster, tier) {
 
   const vMin=v0+(floor-low)/(top-low)*v,vMax=v0+(floor+height-low)/(top-low)*v;
   const uMin=u0+left/span*u,uMax=u0+(left+width)/span*u;
-  const sill=style===0?.24:style===1?.064:.15;
+  const { opening:[inset,windowTop,windowHeight], frame } = finishes[style];
   const cellWidth=span/(u*cols);
   const cellHeight=(top-low)/(v*rows);
+  const open=cellWidth*(1-2*inset);
   for (let row=Math.floor(vMin*rows);row<=Math.ceil(vMax*rows);row++) {
-    const glyph=(row+.41)/rows;
+    const glyph=(row+1-windowTop-windowHeight*.5)/rows;
     const y=low+(glyph-v0)/v*(top-low);
     if (y<floor+.24 || y>floor+height-.24) continue;
-    if (concrete || row%2===0) part('frame',0,y-cellHeight*.34,.19,width*.97,.15,.32,'#7e817b');
-    if (tier<2) continue;
     for (let col=Math.floor(uMin*cols);col<=Math.ceil(uMax*cols);col++) {
+      if (!hasWindow(style,col,-row-1)) continue;
       const f=((col+.5)/cols-u0)/u;
       const across=span*f-left-width*.5;
-      if (Math.abs(across)>width*.5-cellWidth*.31) continue;
-      const open=cellWidth*(1-2*sill);
-      part('frame',across,y-cellHeight*.22,.23,open+.14,.13,.38,'#aaa498');
-      part('frame',across-open*.5,y,.17,.094,cellHeight*.47,.24,'#747a75');
-      if (random()<.13) {
+      if (Math.abs(across)>width*.5-open*.5) continue;
+      part('frame',across,y-cellHeight*windowHeight*.5,.23,open+.14,.15,.42,frame);
+      if (tier<2) continue;
+      part('frame',across-open*.5,y,.17,.094,cellHeight*windowHeight,.24,frame);
+      if (style===2 && random()<.18) {
         part('hardware',across+open*.36,y-cellHeight*.10,.50,.62,.40,.56,'#6f7675');
         for (const at of [-.10,0,.10]) part('dark',across+open*.36,y-cellHeight*.10+at,.795,.44,.031,.055);
       }
