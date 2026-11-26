@@ -4,7 +4,7 @@ import { towers, facadeColors, structural, trim } from './architecture.js';
 import { setScreenTime } from './ads.js';
 import { generateBuildings, park, plaza, randomFor, shore } from './flight.js';
 import { airCircuits, streetRuns } from './traffic.js';
-import { blockWidth, gardenBasins, gardenWalks, streets as streetGrid } from './meridian-plan.js';
+import { gardenBasins, gardenWalks, harborMarket, streetPoint, streets as streetGrid } from './meridian-plan.js';
 import { addMovingTraffic } from './street-life.js';
 import { coreTile, districtForPosition, groundAt, riverAt, streetVertex, tileAt, tileSize } from './extent.js';
 import { generateTile, localTraffic } from './world.js';
@@ -195,7 +195,7 @@ function ground(scene, buildings, waterTime) {
   ];
   platforms.forEach(points => scene.add(shapeMesh(points, .4, cliff)));
   const curbs = [], streets = [], paint = [], poles = [], lamps = [], grass = [], stems = [], leaves = [], pools = [];
-  const signs = [], fountains = [], buoys = [], awnings = [], spill = [], signals = [], posts = [];
+  const signs = [], fountains = [], buoys = [], awnings = [], spill = [], signals = [];
   const random = randomFor(13652);
   const lightsAlong = (x, z, toX, toZ, spacing, height, target = lamps) => {
     const count = Math.floor(Math.hypot(toX - x, toZ - z) / spacing);
@@ -208,42 +208,37 @@ function ground(scene, buildings, waterTime) {
     }
   };
 
-  for (const { horizontal, center, width, start, end, kind } of streetGrid) {
-    const coordinates = (across, offset = 0) => horizontal ? [across, center + offset] : [center + offset, across];
+  for (const road of streetGrid) {
+    const { width, length, kind, markedSections, yaw }=road;
+    const coordinates = (across, offset = 0) => streetPoint(road,across,offset);
     const roadBetween = (target, height, from, to, w, offset, thickness) => {
       const [x,z] = coordinates(from,offset);
       line(target,x,height,z,...coordinates(to,offset),w,thickness);
     };
-    roadBetween(streets,.11,start,end,width,0);
-    for (const side of [-1, 1]) {
-      roadBetween(curbs,.21,start,end,2.9,side*(width/2+1.6));
-      roadBetween(paint,.23,start,end,.18,side*(width/2-.53),.08);
-    }
-    lightsAlong(...coordinates(start,width/2+2.4),...coordinates(end,width/2+2.4),kind==='avenue'?26:35,5.8);
-    if (kind==='avenue') {
-      for (const offset of [-.46,.46]) roadBetween(paint,.23,start+5,end-5,.19,offset,.057);
-    } else {
-      for (let across=start+17;across<end-10;across+=22) roadBetween(paint,.23,across,across+8,.28,0,.065);
-    }
-    for (let across = start + 19; across < end - 20; across += 35) {
-      const [x,z] = coordinates(across, width*.13);
-      if ([park,plaza].some(space => Math.abs(x-space.x) < space.w/2 && Math.abs(z-space.z) < space.d/2)) continue;
-      spill.push([x,.26,z,11+random()*6,1,16+random()*9,horizontal ? Math.PI/2:0,
-        random() < .24 ? '#80bad0' : '#e6a762']);
-    }
-    if (!horizontal) continue;
-    for (let col = -6; col <= 4; col++) {
-      const crossing = col * blockWidth + blockWidth/2;
-      if (crossing < start + 18 || crossing > end - 18) continue;
-      if (!streetGrid.some(road=>!road.horizontal && road.center===crossing && road.start<center && road.end>center)) continue;
-      for (const side of [-1, 1]) {
-        for (let stripe = -11; stripe <= 11; stripe += 2.6) {
-          paint.push([crossing + stripe*.55,.24,center+side*9.7,1.0,.08,3.3]);
-          paint.push([crossing + side*10.4,.24,center+stripe*.5,3.5,.08,.94]);
+    roadBetween(streets,.11,0,length,width,0);
+    for (const [start,end] of markedSections) {
+      for (const side of [-1,1]) {
+        roadBetween(curbs,.21,start,end,2.9,side*(width/2+1.6));
+        roadBetween(paint,.23,start,end,.18,side*(width/2-.53),.08);
+      }
+      lightsAlong(...coordinates(start,width/2+2.4),...coordinates(end,width/2+2.4),
+        kind==='avenue'?25:32,5.8,kind==='quay'?signs:lamps);
+      if (end-start<13) continue;
+      if (kind==='avenue') {
+        for (const offset of [-.46,.46]) roadBetween(paint,.23,start+5,end-5,.19,offset,.057);
+      } else {
+        for (let across=start+12;across<end-11;across+=22) roadBetween(paint,.23,across,across+8,.28,0,.065);
+      }
+      for (const across of [start>0?start+2.4:0,end<length?end-2.4:0]) {
+        if (!across) continue;
+        for (let offset=-(width/2-2);offset<=width/2-2;offset+=2) {
+          roadBetween(paint,.24,across-1.6,across+1.6,.74,offset,.08);
         }
-        const x = crossing + side*10.8, z = center - side*10.2;
-        posts.push([x,3.0,z,.34,6.0,.34],[x,5.9,z,.89,.35,5.2]);
-        signals.push([x,.74+5.8,z-2.3,.54,.57,.27]);
+      }
+      for (let across=start+18;across<end-13;across+=33) {
+        const [x,z]=coordinates(across,width*.13);
+        spill.push([x,.26,z,11+random()*6,1,16+random()*9,yaw,
+          kind==='quay'?'#80bad0':'#e6a762']);
       }
     }
   }
@@ -280,16 +275,20 @@ function ground(scene, buildings, waterTime) {
       paint.push([x, .96, z, 7, .045, .38]);
     }
   }
-  for (let i = 0; i < 11; i++) {
-    const x = -294 + i * 24;
-    const z = 916 - Math.cos(i * .43) * 11;
+  for (const [start,end] of harborWalks) {
+    curbs.push([(start+end)/2,.23,harborMarket.z,end-start,.45,harborMarket.d]);
+    lightsAlong(start,910,end,910,16,4.2);
+  }
+  for (let i = 0; i < 13; i++) {
+    const x = -295 + i * 25;
+    if (Math.abs(x+204)<27) continue;
+    const z = harborMarket.z-4;
     curbs.push([x, .85, z, 18, 1.5, 11]);
     for (const offset of [-7, 7]) poles.push([x + offset, 2.2, z, .4, 3.5, .43]);
     awnings.push([x, 4.2, z, 17, .68, 10, 0, i % 3 ? '#604365' : '#416278']);
     if (i % 3) lamps.push([x, 4.31, z + 5.1, 16.8, .16, .16]);
     else signs.push([x, 4.31, z + 5.1, 16.8, .16, .16]);
   }
-  lightsAlong(-315, 930, 22, 930, 18, 4.2);
   const pond = new Mesh(new THREE.CylinderGeometry(22, 22, .46, 36), neon('#3484a9', .9));
   pond.position.set(plaza.x, 1.24, plaza.z);
   scene.add(pond);
@@ -361,17 +360,24 @@ function ground(scene, buildings, waterTime) {
     }
     for (let step=.1;step<1;step+=.18) curbs.push([x+(tx-x)*step,-1.4,z+(tz-z)*step,7,7,4.4]);
   }
-  for (const [x,z,toX,toZ] of [[-359,620,-87,601],[-352,393,-99,396],[-75,-224,160,-210]]) {
+  for (const [targetX,targetZ] of [[-204,620],[204,-220],[-612,440]]) {
+    const left=buildings.filter(b=>b.h>26 && b.x>targetX-95 && b.x<targetX-22
+      && Math.abs(b.z-targetZ)<96 && Math.sin(b.yaw)>.99);
+    const right=buildings.filter(b=>b.h>26 && b.x>targetX+22 && b.x<targetX+95
+      && Math.abs(b.z-targetZ)<96 && Math.sin(b.yaw)<-.99);
+    const pair=left.flatMap(a=>right.map(b=>({ a,b,score:Math.abs(a.z-b.z)+Math.abs((a.z+b.z)/2-targetZ)*.5 })))
+      .sort((a,b)=>a.score-b.score)[0];
+    if (!pair || Math.abs(pair.a.z-pair.b.z)>34) continue;
+    const { x,z }=pair.a, { x:toX,z:toZ }=pair.b;
     line(curbs,x,13,z,toX,toZ,10.8,2.75);
-    line(awnings,x,18.5,z,toX,toZ,10.5,1.2);
+    line(awnings,x,16.45,z,toX,toZ,10.5,1.2);
     const tx=toX-x,tz=toZ-z,norm=Math.hypot(tx,tz),dx=-tz/norm*4.9,dz=tx/norm*4.9;
     for (const side of [-1,1]) {
-      line(lamps,x+side*dx,16.45,z+side*dz,toX+side*dx,toZ+side*dz,.38,.32);
+      line(lamps,x+side*dx,15.3,z+side*dz,toX+side*dx,toZ+side*dz,.38,.32);
       for (let t=.08;t<.98;t+=.075) {
-        poles.push([x+tx*t+side*dx,16,z+tz*t+side*dz,.48,5.0,.48]);
+        poles.push([x+tx*t+side*dx,15,z+tz*t+side*dz,.48,3.1,.48]);
       }
     }
-    for (const t of [.18,.47,.78]) posts.push([x+tx*t,6,z+tz*t,1.7,12.1,2.0]);
   }
 
   shore.forEach(([x, z], index) => {
@@ -389,7 +395,7 @@ function ground(scene, buildings, waterTime) {
   batch(scene, box, asphalt, streets);
   batch(scene, box, stone, curbs);
   batch(scene, box, paintedLines, paint);
-  batch(scene, box, structural, poles.concat(stems, buoys, posts));
+  batch(scene, box, structural, poles.concat(stems, buoys));
   batch(scene, box, warmLamp, lamps);
   batch(scene, box, coldLamp, signs);
   batch(scene, box, hazardLamp, signals);
@@ -431,6 +437,7 @@ function mountains(scene) {
   }
 }
 
+const harborWalks = [[-300,-225],[-182,16]];
 const footpaths = [
   [-286, 308, -286, 400, 8], [-153, 310, -153, 406, 8],
   [-271, 409, -168, 409, 9], [-269, 302, -170, 302, 7],
@@ -438,7 +445,13 @@ const footpaths = [
     x + (x === toX ? 0 : 7), z + (z === toZ ? 0 : 7),
     toX - (x === toX ? 0 : 7), toZ - (z === toZ ? 0 : 7), walkers,
   ]),
-  [-293, 924, 15, 924, 17], [-219, 722, -219, 805, 8],
+  ...harborWalks.map(([start,end])=>[start,906,end,906,Math.round((end-start)/17)]),
+  ...streetGrid.filter(road=>road.kind==='quay').flatMap(road=>road.markedSections
+    .filter(([start,end])=>end-start>45)
+    .map(([start,end])=>[
+      ...streetPoint(road,start+5,-road.width/2-1.6),...streetPoint(road,end-5,-road.width/2-1.6),
+      Math.round((end-start)/35),
+    ])),
 ];
 
 const distantTowers = new MeshStandardMaterial({ roughness: .87 });
@@ -815,7 +828,7 @@ export function createCity(scene) {
   const coreDetail=detailHierarchy(towers(city,coreBuildings));
   const details=streetDetails(scene);
   const lighting=streetLighting(scene);
-  const updateTraffic = addMovingTraffic(city, airCircuits(coreBuildings), streetRuns(coreBuildings), footpaths, 18725);
+  const updateTraffic = addMovingTraffic(city, airCircuits(coreBuildings), streetRuns(), footpaths, 18725);
   let lastColliders, showCore;
   return {
     buildings: coreBuildings,

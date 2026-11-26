@@ -1,7 +1,7 @@
 import { CatmullRomCurve3, MathUtils, Vector3 } from 'three';
 import { blockSize, closestSpine, coreTile, districtForPosition, groundAt, landmarksNear, riverAt, spinePoint,
   streetVertex, tileAt, tileSize, tileSeed } from './extent.js';
-import { departure, intersectsBuilding, randomFor } from './flight.js';
+import { departure, footprintsOverlap, intersectsBuilding, randomFor } from './flight.js';
 
 const edge = tileSize / 2;
 const lanesAcross = tileSize / blockSize;
@@ -98,18 +98,6 @@ function pavedRoads(col, row) {
   return { roads, streetAt };
 }
 
-function overlap(a, b, gap) {
-  for (const [first, second] of [[a,b],[b,a]]) {
-    const sine = Math.sin(first.yaw), cosine = Math.cos(first.yaw);
-    const dx = second.x-first.x, dz = second.z-first.z;
-    const angle = second.yaw-first.yaw;
-    const s = Math.abs(Math.sin(angle)), c = Math.abs(Math.cos(angle));
-    if (Math.abs(dx*cosine-dz*sine) >= (first.w+second.w*c+second.d*s)/2+gap
-      || Math.abs(dx*sine+dz*cosine) >= (first.d+second.w*s+second.d*c)/2+gap) return false;
-  }
-  return true;
-}
-
 export function generateTile(col, row) {
   if (coreTile(col, row)) return null;
   const x = col * tileSize, z = row * tileSize;
@@ -151,8 +139,8 @@ export function generateTile(col, row) {
     const footprint = { x:localX,z:localZ,yaw:side.yaw,w,d,h,type,style,sign,frontage:true,
       streetGap:setback-side.road.width/2,
       retail:lot.use==='market' || lot.use==='urban' };
-    if (reservations.some(building=>overlap(building,footprint,11))
-      || lot.buildings.some(building=>overlap(building,footprint,4))) return;
+    if (reservations.some(building=>footprintsOverlap(building,footprint,11))
+      || lot.buildings.some(building=>footprintsOverlap(building,footprint,4))) return;
     const corners = [[-w/2,-d/2],[w/2,-d/2],[-w/2,d/2],[w/2,d/2]];
     const sine = Math.sin(side.yaw), cosine = Math.cos(side.yaw);
     for (const [across, back] of corners) {

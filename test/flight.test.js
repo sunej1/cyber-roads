@@ -3,9 +3,9 @@ import { test } from 'node:test';
 import { Vector3 } from 'three';
 import { closestSpine, coreEdge, districtForPosition, landmarksNear, spinePoint, streetVertex, tileAt, tileSize } from '../src/extent.js';
 import { airCircuits, streetRuns } from '../src/traffic.js';
-import { gardenBasins, gardenWalks, streetFront, streets } from '../src/meridian-plan.js';
+import { gardenBasins, gardenWalks, harborMarket, isOnLand, streetPoint, streets } from '../src/meridian-plan.js';
 import { generateTile, localTraffic } from '../src/world.js';
-import { advanceFlight, departure, districtAt, districts, generateBuildings, harborExit, intersectsBuilding, length, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route } from '../src/flight.js';
+import { advanceFlight, departure, districtAt, districts, footprintsOverlap, generateBuildings, harborExit, intersectsBuilding, length, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route } from '../src/flight.js';
 
 const dt = 1 / 120;
 
@@ -130,22 +130,55 @@ test('district streets reach avenues and developed plots face their access stree
   assert.ok(inner.every(node=>avenues.has(node)));
 });
 
-test('Meridian storefronts face streets and through roads skirt its park and square', () => {
-  for (const road of streets) for (const space of [park,plaza]) {
-    const across=road.horizontal?space.z:space.x;
-    const halfWidth=(road.horizontal?space.d:space.w)/2;
-    if (Math.abs(road.center-across)>=halfWidth+road.width/2) continue;
-    const along=road.horizontal?space.x:space.z;
-    const halfSpan=(road.horizontal?space.w:space.d)/2;
-    assert.ok(road.end<=along-halfSpan || road.start>=along+halfSpan);
+test('Meridian has a connected grid, diagonal avenues and waterfront connections on dry land', () => {
+  const project=({x,z,dx,dz},px,pz)=>({ along:(px-x)*dx+(pz-z)*dz, offset:(px-x)*dz-(pz-z)*dx });
+  const reachable=new Set([streets[0]]);
+  for (const road of reachable) for (const {along} of road.junctions) {
+    const [x,z]=streetPoint(road,along);
+    for (const other of streets) {
+      const p=project(other,x,z);
+      if (Math.abs(p.offset)<.01 && p.along>=-.01 && p.along<=other.length+.01) reachable.add(other);
+    }
   }
-  const storefronts=generateBuildings().filter(building=>building.frontage && building.retail);
-  assert.ok(storefronts.length>150);
-  for (const building of storefronts) {
-    const {x,z,w,d,yaw}=building;
-    const quarterTurn=Math.abs(yaw)===Math.PI/2;
-    const front=streetFront({x,z,w:quarterTurn?d:w,d:quarterTurn?w:d});
-    assert.equal(front?.yaw,yaw);
+  assert.equal(reachable.size,streets.length);
+  assert.ok(streets.filter(r=>r.kind==='avenue' && r.dx && r.dz && r.length>600).length>=2);
+  assert.ok(streets.filter(r=>r.kind==='quay' && r.junctions.length>=2).length>=6);
+  for (const road of streets) {
+    const [x,z]=streetPoint(road,road.length/2);
+    const footprint={ x,z,w:road.width,d:road.length,yaw:road.yaw };
+    for (const space of [park,plaza]) assert.ok(!footprintsOverlap(footprint,space,0));
+    for (let step=0;step<=1;step+=.01) for (const side of [-1,1]) {
+      assert.ok(isOnLand(...streetPoint(road,step*road.length,side*(road.width/2+2))),
+        `shore clearance at ${road.x},${road.z} to ${road.toX},${road.toZ}`);
+    }
+  }
+});
+
+test('Meridian fills street frontage across the island and keeps civic and harbor spaces clear', () => {
+  const buildings=generateBuildings();
+  assert.deepEqual(buildings,generateBuildings());
+  assert.ok(buildings.length>550);
+  assert.ok(buildings.reduce((area,b)=>area+b.w*b.d,0)>1_000_000);
+  for (const [x,z] of [[-800,240],[460,450],[-225,-855],[370,-560],[630,-550]]) {
+    assert.ok(buildings.filter(b=>Math.abs(b.x-x)<145 && Math.abs(b.z-z)<145).length>=12);
+  }
+  const roadbeds=streets.map(road=>{
+    const [x,z]=streetPoint(road,road.length/2);
+    return {...road,x,z,w:road.width,d:road.length};
+  });
+  for (const [index,b] of buildings.entries()) {
+    assert.ok(roadbeds.every(road=>!footprintsOverlap(b,road,4.7)));
+    assert.ok([park,plaza,harborMarket].every(space=>!footprintsOverlap(b,space,5.9)));
+    for (let other=0;other<index;other++) assert.ok(!footprintsOverlap(b,buildings[other],5.9));
+    const front=streets.find(r=>{
+      const dx=b.x-r.x,dz=b.z-r.z;
+      const along=dx*r.dx+dz*r.dz;
+      const side=Math.sign(dx*r.dz-dz*r.dx);
+      return Math.cos(b.yaw-r.yaw+side*Math.PI/2)>.9999
+        && Math.abs(Math.abs(dx*r.dz-dz*r.dx)-b.d/2-r.width/2-b.streetGap)<1e-6
+        && r.sections.some(([start,end])=>along-b.w/2>=start-1e-6 && along+b.w/2<=end+1e-6);
+    });
+    assert.ok(b.frontage && front);
   }
 });
 
@@ -160,9 +193,8 @@ test('Glass Gardens meets all eight street ends and leaves its walks clear of th
     for (const [px, pz] of [[x, z], [toX, toZ]]) {
       if (inPark(px, pz)) continue;
       entrances.add(`${px}/${pz}`);
-      const [along, center] = horizontal ? [px, pz] : [pz, px];
-      assert.ok(streets.some(road => road.horizontal === horizontal && road.center === center
-        && (road.start === along || road.end === along)), `garden entrance at ${px}/${pz}`);
+      assert.ok(streets.some(road => (horizontal?road.dz===0:road.dx===0)
+        && [[road.x,road.z],[road.toX,road.toZ]].some(([x,z])=>x===px && z===pz)), `garden entrance at ${px}/${pz}`);
     }
     const [left, right, top, bottom] = bounds;
     for (const basin of gardenBasins) {
@@ -256,5 +288,14 @@ test('Meridian traffic circuits loop and clear the towers and the player route',
       assert.ok(guided.every(player=>player.distanceToSquared(point)>11**2));
     }
   }
-  assert.ok(streetRuns(buildings).length>80);
+  const runs=streetRuns();
+  assert.ok(runs.length>=80);
+  for (const {path,end,direction} of runs) {
+    const dx=path.toX-path.x,dz=path.toZ-path.z;
+    const offset=direction*(path.kind==='avenue'?3.4:1.85)/end;
+    for (let t=0;t<=1;t+=.025) {
+      const point={x:path.x+dx*t+dz*offset,y:1,z:path.z+dz*t-dx*offset};
+      assert.ok(buildings.every(b=>!intersectsBuilding(point,b,5)));
+    }
+  }
 });

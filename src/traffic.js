@@ -1,6 +1,6 @@
 import { CatmullRomCurve3, Vector3 } from 'three';
-import { intersectsBuilding, park, plaza, routeSamples } from './flight.js';
-import { streets } from './meridian-plan.js';
+import { intersectsBuilding, routeSamples } from './flight.js';
+import { streetPoint, streets } from './meridian-plan.js';
 
 const circuitPlans = [
   // The inbound and outbound airport patterns run at different heights through the harbor.
@@ -51,22 +51,10 @@ export function airCircuits(buildings) {
   });
 }
 
-export function streetRuns(buildings) {
-  const obstacles = buildings.concat({ ...plaza, h: 12 }, { ...park, h: 12 });
-  const runs = [];
-  for (const { horizontal, center, start, end } of streets) {
-    for (const direction of [-1, 1]) {
-      const lane = center + (horizontal ? 3.1 : -3.1) * direction;
-      const endOfStreet = end - 6;
-      let from = start + 6;
-      for (let across = from; across <= endOfStreet; across += 3) {
-        const point = { x: horizontal ? across : lane, z: horizontal ? lane : across, y: 1 };
-        const blocked = obstacles.some(b => intersectsBuilding(point, b, 5));
-        if (!blocked && across < endOfStreet - 3) continue;
-        if (across - from > 115) runs.push({ horizontal, lane, start: from, end: across - 3, direction });
-        if (blocked) from = across + 3;
-      }
-    }
-  }
-  return runs;
+export function streetRuns() {
+  return streets.filter(road=>road.length>100).flatMap(road=>{
+    const [x,z]=streetPoint(road,8), [toX,toZ]=streetPoint(road,road.length-8);
+    const path={x,z,toX,toZ,kind:road.kind};
+    return [-1,1].map(direction=>({ start:0,end:road.length-16,path,direction }));
+  });
 }

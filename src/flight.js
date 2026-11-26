@@ -1,6 +1,6 @@
 import { CatmullRomCurve3, Vector3, MathUtils } from 'three';
 import { closestSpine, coreEdge, makeDeparture, spinePoint } from './extent.js';
-import { blockDepth, blockWidth, isOnLand, park, plaza, streetFront } from './meridian-plan.js';
+import { harborMarket, isOnLand, park, plaza, streetPoint, streets } from './meridian-plan.js';
 export { park, plaza, shore } from './meridian-plan.js';
 
 export const districts = [
@@ -8,7 +8,7 @@ export const districts = [
   { name: 'Lantern Mile', description: 'Downtown tower canyon', point: 2, color: '#ff73bd' },
   { name: 'Glass Gardens', description: 'Civic square and public park', point: 5, color: '#a2f4ba' },
   { name: 'Crown Heights', description: 'Tower canyon and transit decks', point: 9, color: '#bc9bff' },
-  { name: 'Westbank', description: 'Canals and old warehouse lanes', point: 15, color: '#ffbc86' },
+  { name: 'Westbank', description: 'Market streets and old warehouses', point: 15, color: '#ffbc86' },
 ];
 
 const waypoints = [
@@ -58,6 +58,19 @@ export function intersectsBuilding(position, building, clearance = 3.5) {
   const sin = Math.sin(building.yaw), cos = Math.cos(building.yaw);
   return Math.abs(dx * cos - dz * sin) < building.w / 2 + clearance
     && Math.abs(dx * sin + dz * cos) < building.d / 2 + clearance;
+}
+
+export function footprintsOverlap(a, b, gap) {
+  const dx=b.x-a.x, dz=b.z-a.z;
+  if (Math.max(Math.abs(dx),Math.abs(dz))>(a.w+a.d+b.w+b.d)/2+gap) return false;
+  const angle=(b.yaw??0)-(a.yaw??0);
+  const s=Math.abs(Math.sin(angle)), c=Math.abs(Math.cos(angle));
+  const overlapsAxes = (first,second) => {
+    const sine=Math.sin(first.yaw??0), cosine=Math.cos(first.yaw??0);
+    return Math.abs(dx*cosine-dz*sine)<(first.w+second.w*c+second.d*s)/2+gap
+      && Math.abs(dx*sine+dz*cosine)<(first.d+second.w*s+second.d*c)/2+gap;
+  };
+  return overlapsAxes(a,b) && overlapsAxes(b,a);
 }
 
 export function randomFor(seed) {
@@ -178,18 +191,25 @@ export function advanceFlight(flight, input, guided, dt, buildings) {
 export function generateBuildings() {
   const random = randomFor(7043);
   const buildings = [];
-  const add = (building, front) => {
-    const overlapsPublicSpace = [park, plaza].some(space =>
-      Math.abs(space.x - building.x) < (space.w + building.w) / 2 + 7
-      && Math.abs(space.z - building.z) < (space.d + building.d) / 2 + 7);
-    const offshore = [-1, 1].some(x => [-1, 1].some(z =>
-      !isOnLand(building.x + x * (building.w / 2 + 2), building.z + z * (building.d / 2 + 2))));
-    if (offshore || overlapsPublicSpace || routeSamples.some(point => intersectsBuilding(point, building, 22))) return;
-    if (front) {
-      building = { ...building,yaw:front.yaw,frontage:true,streetGap:front.gap,
-        w:front.road.horizontal?building.w:building.d,d:front.road.horizontal?building.d:building.w };
+  const roadbeds = streets.map(road=>{
+    const [x,z]=streetPoint(road,road.length/2);
+    return { x,z,w:road.width,d:road.length,yaw:road.yaw };
+  });
+  const publicSpaces = [park,plaza,harborMarket];
+  const canPlace = (building) => {
+    const { x,z,w,d,yaw }=building;
+    const sin=Math.sin(yaw), cos=Math.cos(yaw);
+    for (const along of [-1,1]) for (const depth of [-1,1]) {
+      const u=along*(w/2+3), v=depth*(d/2+3);
+      if (!isOnLand(x+u*cos+v*sin,z-u*sin+v*cos)) return false;
     }
-    buildings.push(building);
+    return !publicSpaces.some(space=>footprintsOverlap(building,space,6))
+      && !roadbeds.some(road=>footprintsOverlap(building,road,4.8))
+      && !buildings.some(other=>footprintsOverlap(building,other,6));
+  };
+  const onFrontage = (road, along, side, w, d, streetGap) => {
+    const [x,z]=streetPoint(road,along,side*(road.width/2+streetGap+d/2));
+    return { x,z,w,d,yaw:road.yaw-side*Math.PI/2,frontage:true,streetGap };
   };
 
   const landmarks = [
@@ -202,54 +222,69 @@ export function generateBuildings() {
     { x: 77, z: 469, w: 87, d: 79, h: 211, type: 2, sign: 'OYAMA', style: 1 },
     { x: 263, z: 271, w: 91, d: 68, h: 283, type: 8, sign: 'MERIDIAN', style: 1 },
     { x: 345, z: 176, w: 60, d: 53, h: 214, type: 2, style: 2 },
-    { x: -386, z: 74, w: 95, d: 81, h: 213, type: 4, sign: 'ORBIT', style: 1 },
+    { x: -392, z: -13, w: 76, d: 72, h: 213, type: 4, sign: 'ORBIT', style: 1 },
     { x: 32, z: -179, w: 74, d: 79, h: 173, type: 7, sign: 'VERDANT', style: 5 },
     { x: 409, z: -302, w: 78, d: 66, h: 219, type: 5, sign: 'CROWN', style: 0 },
     { x: 568, z: -432, w: 80, d: 73, h: 204, type: 3, style: 1 },
     { x: -651, z: 388, w: 65, d: 63, h: 85, type: 10, sign: 'TIDELINE', style: 3 },
-    { x: -349, z: 909, w: 56, d: 55, h: 59, type: 12, sign: 'VERDANT', style: 5 },
-    { x: 689, z: 516, w: 79, d: 81, h: 127, type: 6, sign: 'TIDELINE', style: 5 },
+    { x: 709, z: 514, w: 63, d: 53, h: 127, type: 6, sign: 'TIDELINE', style: 5 },
   ];
-  landmarks.forEach(building=>add(building));
-
-  for (let row = -7; row <= 7; row++) {
-    for (let column = -7; column <= 6; column++) {
-      const x = column * blockWidth, z = row * blockDepth;
-      const density = Math.hypot((x + 95) / 1120, (z + 25) / 1040);
-      if (density>1.10 || (x>590 && z<110)) continue;
-      const westbank=x<-505 && z>150, waterfront=z>=700;
-      const civic = Math.hypot((x-park.x)/220,(z-park.z)/160)<1.25
-        || Math.hypot((x-plaza.x)/190,(z-plaza.z)/150)<1.20;
-      const hubs = Math.min(Math.hypot((x+204)/310,(z-562.5)/270),Math.hypot((x-204)/320,(z+62.5)/380));
-      const w = (westbank?82:65)+random()*22, d = (westbank?55:54)+random()*24;
-      const front = streetFront({x,z,w,d});
-      if (!front) continue;
-      const h = westbank?19+random()*29 : waterfront?14+random()*31 : civic?34+random()*37
-        : 39+120*Math.max(0,1-hubs*.55)+(front.road.kind==='avenue'?30:0)+random()*56;
-      const pool = westbank?[10,13,15]:waterfront?[13,14,16]:civic?[3,4,7,12]:[0,1,2,3,4,5,6,7,8,9,14];
-      const type = pool[Math.floor(random()*pool.length)];
-      const style = westbank?3:waterfront?5:Math.floor(random()*6);
-      if (landmarks.some(tower => Math.abs(tower.x - x) < (w + tower.w) / 2 + 19
-        && Math.abs(tower.z - z) < (d + tower.d) / 2 + 19)) continue;
-      add({ x,z,w,d,h,type,style,retail:!westbank },front);
+  for (const landmark of landmarks) {
+    const candidates=[];
+    for (const road of streets) {
+      const dx=landmark.x-road.x, dz=landmark.z-road.z;
+      const along=dx*road.dx+dz*road.dz, offset=dx*road.dz-dz*road.dx;
+      const side=Math.sign(offset)||1;
+      for (const size of [1,.82]) for (const shift of [0,-16,16,-33,33,-48,48]) {
+        const w=landmark.w*size, d=landmark.d*size, at=along+shift;
+        if (!road.sections.some(([start,end])=>at>=start+w/2 && at<=end-w/2)) continue;
+        const gap=MathUtils.clamp(Math.abs(offset)-d/2-road.width/2,6,27);
+        const building={...landmark,...onFrontage(road,at,side,w,d,gap),retail:true};
+        const distance=Math.hypot(building.x-landmark.x,building.z-landmark.z);
+        if (distance<108) candidates.push({building,score:distance+(1-size)*100});
+      }
     }
+    candidates.sort((a,b)=>a.score-b.score);
+    const match=candidates.find(({building})=>canPlace(building)
+      && !routeSamples.some(point=>intersectsBuilding(point,building,22)));
+    if (match) buildings.push(match.building);
   }
-  for (let row = -7; row <= 7; row++) {
-    for (let column = -7; column <= 6; column++) {
-      const x = column * blockWidth, z = row * blockDepth;
-      if (Math.hypot((x+95)/1080,(z-35)/1020)>1) continue;
-      for (const [dx, dz] of [[-37,-33],[37,-33],[-37,33],[37,33]]) {
-        const footprint = {
-          x:x+dx,z:z+dz,w:24+random()*15,d:24+random()*12,h:9+random()**1.65*(z>=700?20:38),
-          type:13+Math.floor(random()*4),style:Math.floor(random()*6),retail:x>-510,
-        };
-        if (buildings.some(b => {
-          const quarterTurn = Math.abs(b.yaw)===Math.PI/2;
-          return Math.abs(b.x-footprint.x)<((quarterTurn?b.d:b.w)+footprint.w)/2+5
-            && Math.abs(b.z-footprint.z)<((quarterTurn?b.w:b.d)+footprint.d)/2+5;
-        })) continue;
-        const front=streetFront(footprint);
-        if (front) add(footprint,front);
+
+  const byHierarchy = [...streets].sort((a,b)=>Number(b.kind==='avenue')-Number(a.kind==='avenue'));
+  const infill = (road, at, side, w, d, narrow) => {
+    const building=onFrontage(road,at,side,w,d,road.kind==='avenue'?7:5.5);
+    if (!canPlace(building)) return;
+    const {x,z}=building;
+    const westbank=x<-480 && z>110;
+    const port=road.kind==='quay' || z>722;
+    const civic=Math.hypot((x-park.x)/177,(z-park.z)/145)<1.2
+      || Math.hypot((x-plaza.x)/142,(z-plaza.z)/137)<1.2;
+    const hubs=Math.min(Math.hypot((x+204)/300,(z-550)/250),Math.hypot((x-204)/345,(z+135)/330));
+    const highStreet=road.kind==='avenue' || (hubs<.95 && w>46 && random()<.43);
+    const low=port || westbank || civic || narrow;
+    building.h=low ? 16+random()*(civic?36:27)
+      : 31+random()*36+Math.max(0,1-hubs*.60)*(highStreet?138:54);
+    for (const point of routeSamples) {
+      if (intersectsBuilding(point,building,22)) building.h=point.y-23;
+    }
+    const {h}=building;
+    const pool=h<32?[13,14,15,16]:westbank?[10,11,13,15,16]:port?[11,13,15,16]:
+      civic?[1,3,4,7,12,13,15]:h<75?[0,1,2,3,13,15,16]:[0,1,2,3,4,5,6,7,8,9];
+    const type=pool[Math.floor(random()*pool.length)];
+    const style=westbank?3:port?5:Math.floor(random()*6);
+    buildings.push({ ...building,type,style,retail:!westbank || road.kind==='avenue' || w<34 });
+  };
+  for (const narrow of [false,true]) for (const road of byHierarchy) {
+    const pitch=narrow?34:59;
+    for (const [start,end] of road.sections) {
+      const count=Math.round((end-start)/pitch);
+      if (!count) continue;
+      const span=(end-start)/count;
+      for (const side of [-1,1]) for (let i=0;i<count;i++) {
+        const at=start+span*(i+.5);
+        const w=Math.min(span-7,(narrow?21:40)+random()*(narrow?9:16));
+        const d=(narrow?18:33)+random()*(narrow?11:23);
+        if (w>=(narrow?16:28)) infill(road,at,side,w,d,narrow);
       }
     }
   }

@@ -12,7 +12,7 @@ const setup = (circuits, roads, footpaths = []) => {
 test('traffic meshes stay within their batch, triangle, and footprint budgets', () => {
   const curve = new LineCurve3(new Vector3(0, 25, 0), new Vector3(0, 35, -240));
   const circuit = { curve, count: 2, speed: 34, length: curve.getLength() };
-  const road = { horizontal: true, lane: 3.1, start: 0, end: 390, direction: 1 };
+  const road = { path:{x:0,z:0,toX:312,toZ:234,kind:'avenue'}, start:0, end:390, direction:1 };
   const air = setup([circuit], []).meshes;
   const { meshes: ground, update } = setup([], [road]);
   const { meshes: walkers } = setup([], [], [[0, 0, 10, 10, 2]]);
@@ -49,8 +49,9 @@ test('traffic meshes stay within their batch, triangle, and footprint budgets', 
     assert.ok(detail.equals(chassis));
   }
   const position = new Vector3().setFromMatrixPosition(chassis);
-  assert.ok(position.x > 0 && position.x < road.end);
-  assert.ok(Math.abs(position.z - road.lane) < 1e-6);
+  const along=position.x*.8+position.z*.6;
+  assert.ok(along>0 && along<road.end);
+  assert.ok(Math.abs(position.x*.6-position.z*.8-3.4)<1e-5);
 
   const lamps = ground.find(mesh => mesh.material.vertexColors);
   const { position: vertices, color, normal } = lamps.geometry.attributes;
