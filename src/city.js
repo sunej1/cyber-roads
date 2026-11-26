@@ -12,6 +12,7 @@ import { asphalt } from './surface-materials.js';
 import { detailHierarchy } from './detail-selection.js';
 import { streetDetails } from './streetscape.js';
 import { streetFixtures, streetLighting } from './street-lighting.js';
+import { addPlants, plant, windTime } from './vegetation.js';
 
 const { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial }=THREE;
 const lightColors=['#ffc479','#62d8ed','#ff785c','#e4b154','#fff1a4','#add27e'];
@@ -194,7 +195,7 @@ function ground(scene, buildings, waterTime) {
     [[440, 719], [530, 694], [615, 854], [537, 889]],
   ];
   platforms.forEach(points => scene.add(shapeMesh(points, .4, cliff)));
-  const curbs = [], streets = [], paint = [], poles = [], lamps = [], grass = [], stems = [], leaves = [], pools = [];
+  const curbs = [], streets = [], paint = [], poles = [], lamps = [], grass = [], trees = [], shrubs = [], pools = [];
   const signs = [], fountains = [], buoys = [], awnings = [], spill = [], signals = [], posts = [];
   const random = randomFor(13652);
   const lightsAlong = (x, z, toX, toZ, spacing, height, target = lamps) => {
@@ -254,7 +255,7 @@ function ground(scene, buildings, waterTime) {
       lightsAlong(x - w / 2 + 4, z + side * (d / 2 - 3), x + w / 2 - 4, z + side * (d / 2 - 3), 13, 2.2, signs);
     }
   }
-  grass.push([park.x, .88, park.z, park.w - 13, .21, park.d - 13]);
+  grass.push([park.x, .88, park.z, park.w - 13, .21, park.d - 13, 0, '#174543']);
   for (const { x, z, w, d } of gardenBasins) {
     curbs.push([x, 1.19, z, w, .6, d]);
     pools.push([x, 1.48, z, w - 3, .15, d - 3]);
@@ -305,15 +306,27 @@ function ground(scene, buildings, waterTime) {
   const tree = (x, z, large = false) => {
     const sample = large ? parkRandom : random;
     const h = large ? 8 + sample() * 7 : 3 + sample() * 5;
-    const green = ['#31746f', '#417461', '#286758', '#42878a', '#50916d'][Math.floor(sample() * 5)];
-    stems.push([x, h * .35 + .5, z, .55, h * .72, .55]);
-    leaves.push([x, h * .82 + .7, z, h * .39, h * .48, h * .39, sample() * 5, green]);
-    leaves.push([x + .9, h * .59 + .8, z - .6, h * .28, h * .31, h * .34, sample() * 5, green]);
+    const tint = ['#5d9a80', '#b99254', '#72a76b', '#588f91', '#ab794c'][Math.floor(sample() * 5)];
+    const yaw = sample() * Math.PI * 2;
+    const scale = .92 + sample() * .16;
+    plant(trees, x, large ? .98 : .89, z, h * scale, yaw, tint);
     if (large && sample() < .34) signs.push([x, 1.5, z, 1.1, .33, 1.1]);
   };
   for (const side of [-1, 1]) {
     for (const z of [34, 48, 80, 97, 114, 131, 148, 165]) tree(side * 91, z, true);
     for (const z of [33, 48]) for (const x of [22, 44]) tree(side * x, z, true);
+  }
+  for (const side of [-1, 1]) for (const center of [94, 156]) {
+    for (const [x, width, depth] of [[side * 60, 4.5, 36], [side * 90, 12, 39]]) {
+      curbs.push([x, 1.04, center, width + .72, .30, depth + .72]);
+      grass.push([x, 1.18, center, width, .14, depth, 0, '#303b32']);
+      for (let offset = -depth / 2 + 2.5; offset < depth / 2 - 1.5; offset += 2.65) {
+        const h = 1.45 + parkRandom() * (width > 5 ? 1.40 : .65);
+        const tint = ['#7d9e50', '#a78b4b', '#638971'][Math.floor(parkRandom() * 3)];
+        const xx = x + (parkRandom() - .5) * (width - 3);
+        plant(shrubs, xx, 1.22, center + offset, h, parkRandom() * Math.PI * 2, tint);
+      }
+    }
   }
   for (const side of [-1, 1]) {
     for (let i = 0; i < 7; i++) tree(plaza.x + side * 50, plaza.z - 51 + i * 17);
@@ -389,16 +402,17 @@ function ground(scene, buildings, waterTime) {
   batch(scene, box, asphalt, streets);
   batch(scene, box, stone, curbs);
   batch(scene, box, paintedLines, paint);
-  batch(scene, box, structural, poles.concat(stems, buoys, posts));
+  batch(scene, box, structural, poles.concat(buoys, posts));
   batch(scene, box, warmLamp, lamps);
   batch(scene, box, coldLamp, signs);
   batch(scene, box, hazardLamp, signals);
   batch(scene, pavingPlane, pavementGlow, spill);
   batch(scene, box, neon('#9bdbfa', 2.1), fountains);
-  batch(scene, box, new MeshBasicMaterial({ color: '#174543' }), grass);
+  batch(scene, box, new MeshBasicMaterial(), grass);
   batch(scene, box, basinWater(waterTime), pools);
   batch(scene, box, new MeshStandardMaterial({ roughness: .62 }), awnings);
-  batch(scene, new THREE.IcosahedronGeometry(1, 1), new MeshStandardMaterial({ roughness: 1, emissive: '#0a2824', emissiveIntensity: .65 }), leaves);
+  addPlants(scene, 'garden', trees);
+  addPlants(scene, 'shrub', shrubs);
   return streetFixtures(lamps);
 }
 
@@ -463,9 +477,6 @@ const tilesRadius = 3;
 const terrainMaterial = new MeshStandardMaterial({ vertexColors:true, roughness:.91 });
 const circle = new THREE.CylinderGeometry(.5,.5,1,16);
 const octagon = new THREE.CylinderGeometry(.30,.5,1,8);
-const leavesGeometry = new THREE.IcosahedronGeometry(.5,1);
-const treeBark = new MeshStandardMaterial({ color:'#504c40', roughness:1 });
-const treeCanopy = new MeshStandardMaterial({ roughness:1 });
 const paintedMetal = new MeshStandardMaterial({ roughness:.67, metalness:.36 });
 const bridgeGlass = neon('#729e95',.9);
 const steel = new MeshStandardMaterial({ color:'#747674', roughness:.66, metalness:.46 });
@@ -499,18 +510,29 @@ function tileTerrain({x,z}) {
 function drawTile(tile, detail) {
   const group=new Group();
   group.add(tileTerrain(tile));
-  const paved=[], roads=[], marks=[], lights=[], pools=[], curbs=[], lawns=[], docks=[], tanks=[], rails=[], trees=[], trunks=[];
+  const paved=[], roads=[], marks=[], lights=[], pools=[], curbs=[], lawns=[], docks=[], tanks=[], rails=[];
+  const trees=[], conifers=[];
   const random=randomFor(tile.seed ^ 0x1927347);
   const marketPaths=[];
   const basins=[];
-  const planted=(x,z,scale=1)=>{
+  const planted=(x,z,scale,y,woodland=false)=>{
     const h=(4.5+random()*7.8)*scale;
-    const color=['#424e36','#465543','#535a37','#3b4b3c','#656748'][Math.floor(random()*5)];
-    trunks.push([x,h*.29,z,h*.065,h*.57,h*.06]);
-    trees.push([x,h*.72,z,h*.67,h*.93,h*.65,random()*6.28,color]);
-    if (detail) trees.push([x+h*.14,h*.56,z+h*.055,h*.49,h*.60,h*.48,random()*6.28,color]);
+    const variation=random(), yaw=random()*Math.PI*2;
+    const color=woodland
+      ? ['#51796a','#628875','#57765a','#749655','#87965e'][Math.floor(variation*5)]
+      : ['#647f59','#79905e','#8a9b62','#568478','#a3985e'][Math.floor(variation*5)];
+    plant(woodland && variation<.6 ? conifers : trees,x,y,z,h,yaw,color);
+    if (detail) {
+      // Keep subsequent tile decoration on the same seed sequence.
+      const offset=random()*Math.PI*2;
+      if (woodland && variation<.6) {
+        const xx=x+Math.cos(offset)*4.5, zz=z+Math.sin(offset)*4.5;
+        const ground=groundAt(xx+tile.x,zz+tile.z);
+        if (ground>-.93) plant(conifers,xx,ground-.15,zz,h*.53,offset,color);
+      }
+    }
   };
-  for (const {x,z,use,yaw,front,rail,shorefront,buildings} of tile.blocks) {
+  for (const {x,z,use,yaw,front,rail,shorefront,buildings,kind} of tile.blocks) {
     const sin=Math.sin(yaw), cos=Math.cos(yaw);
     const orient=(across,depth)=>[x+across*cos+depth*sin,z-across*sin+depth*cos];
     if (detail) for (const building of buildings) entryPath(paved,building);
@@ -524,7 +546,7 @@ function drawTile(tile, detail) {
         for (const a of [-29,29]) for (const b of [-23,20]) {
           const [px,pz]=orient(a,b);
           lawns.push([px,.42,pz,23,.34,10,yaw,'#54674e']);
-          planted(px,pz,1.22);
+          planted(px,pz,1.22,.59);
           if (detail) curbs.push([px,.37,pz,24,.38,10.9,yaw]);
         }
         if (detail) {
@@ -541,7 +563,8 @@ function drawTile(tile, detail) {
         for (let i=0;i<count;i++) {
           const dx=(random()-.5)*(use==='grove'?110:93);
           const dz=use==='grove'?(random()-.5)*106:(random()-.68)*47;
-          if (groundAt(x+dx+tile.x,z+dz+tile.z)>-.93) planted(x+dx,z+dz,use==='grove'?1.22:.8);
+          const y=groundAt(x+dx+tile.x,z+dz+tile.z);
+          if (y>-.93) planted(x+dx,z+dz,use==='grove'?1.43:.94,y-.15,kind==='outskirts');
         }
       }
     } else if (use==='tanks') {
@@ -708,8 +731,8 @@ function drawTile(tile, detail) {
   batch(group,box,asphalt,roads);
   batch(group,circle,asphalt,junctions);
   batch(group,box,structural,bridges);
-  batch(group,box,treeBark,trunks);
-  batch(group,leavesGeometry,treeCanopy,trees);
+  addPlants(group,'broadleaf',trees);
+  addPlants(group,'conifer',conifers);
   let move=null;
   let hierarchy=[], fixtures=[];
   if (detail) {
@@ -835,8 +858,9 @@ export function createCity(scene) {
       details.update(now,camera,origin,height,hierarchies);
       lighting.update(now,dt,camera,origin,fixtureLists.concat([details.fixtures()]));
     },
-    update(time, position, origin) {
+    update(time, position, origin, reducedMotion) {
       setScreenTime(time);
+      windTime.value = reducedMotion ? 0 : time;
       ocean.material.uniforms.time.value = time;
       const x = position.x - origin.x, z = position.z - origin.z;
       dome.position.set(x, position.y, z);

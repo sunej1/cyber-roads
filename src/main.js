@@ -541,7 +541,7 @@ function frame(now) {
   target.x += origin.x-cellX;
   target.z += origin.z-cellZ;
   origin.set(cellX,0,cellZ);
-  city.update(time,flight.position,origin);
+  city.update(time,flight.position,origin,reduceMotion.matches);
 
   if (now >= nextHud) {
     nextHud = now + 90;
