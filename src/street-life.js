@@ -1,18 +1,87 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { randomFor } from './flight.js';
+import { box, neon } from './scene-parts.js';
 
-const box = new THREE.BoxGeometry();
-const shuttle = new THREE.CylinderGeometry(.79, 1, 1, 6);
-const person = new THREE.CylinderGeometry(.55, .8, 1, 5);
-const white = new THREE.MeshBasicMaterial({ color: new THREE.Color('#fff0be').multiplyScalar(3.3) });
-const red = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff562f').multiplyScalar(3.2) });
+const shuttle = new THREE.CylinderGeometry(.79, 1, 1, 6, 1, false, Math.PI / 6)
+  .scale(1, 1, 1 / Math.cos(Math.PI / 6));
+const person = new THREE.CylinderGeometry(.55, .8, 1, 5).scale(.53, 1.55, .44);
+const white = neon('#fff0be', 3.3);
+const roadLamps = new THREE.MeshBasicMaterial({ vertexColors: true });
 const hull = new THREE.MeshStandardMaterial({ roughness: .41, metalness: .48 });
-const canopy = new THREE.MeshStandardMaterial({ color: '#263b46', roughness: .19, metalness: .65 });
-const exhaust = new THREE.MeshBasicMaterial({ color: new THREE.Color('#85e0ff').multiplyScalar(1.9) });
+const canopy = new THREE.MeshStandardMaterial({ color: '#314957', roughness: .24, metalness: .56 });
+const exhaust = neon('#85e0ff', 1.9);
 const pedestrian = new THREE.MeshStandardMaterial({ roughness: .8 });
 const paint = ['#536476', '#d3b65d', '#515752', '#a04334', '#b9bdad', '#42575a'];
 const point = new THREE.Vector3();
 const ahead = new THREE.Vector3();
+
+// Bake the fixed offsets so paired lights and hull details share their material's draw call.
+function shape(...parts) {
+  return mergeGeometries(parts.map(([geometry, x, y, z, width, height, depth]) =>
+    geometry.clone().scale(width, height, depth).translate(x, y, z)));
+}
+
+function colorGeometry(geometry, color) {
+  const colors = new Float32Array(geometry.attributes.position.count * 3);
+  for (let i = 0; i < colors.length; i += 3) color.toArray(colors, i);
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
+function taperedBox(roofWidth, roofLength) {
+  const geometry = box.clone();
+  const vertices = geometry.attributes.position;
+  for (let i = 0; i < vertices.count; i++) {
+    if (vertices.getY(i) > 0) {
+      vertices.setX(i, vertices.getX(i) * roofWidth);
+      vertices.setZ(i, vertices.getZ(i) * roofLength);
+    }
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Keep the outward face and the surfaces seen from above and in road reflections.
+const rearLens = mergeGeometries([
+  new THREE.PlaneGeometry().translate(0, 0, .5),
+  new THREE.PlaneGeometry().rotateX(-Math.PI / 2).translate(0, .5, 0),
+  new THREE.PlaneGeometry().rotateX(Math.PI / 2).translate(0, -.5, 0),
+]);
+const frontLens = rearLens.clone().rotateY(Math.PI);
+
+const airframe = shape(
+  [shuttle, 0, -.06, -.65, 1.65, .78, 3.835],
+  [box, -.99, -.20, 1.02, 1.68, .54, 4.44],
+  [box, .99, -.20, 1.02, 1.68, .54, 4.44],
+);
+const flightDeck = shape([shuttle, 0, .73, -.66, 1.31, 1.05, 2.42]);
+const thrustPorts = shape(
+  [rearLens, -1.27, -.21, 3.24, .72, .24, .16],
+  [rearLens, 1.27, -.21, 3.24, .72, .24, .16],
+);
+const landingLights = shape(
+  [frontLens, -.62, .02, -4.24, .40, .19, .49],
+  [frontLens, .62, .02, -4.24, .40, .19, .49],
+);
+
+const chassis = taperedBox(.93, .97).scale(2.49, .76, 5).translate(0, -.09, 0);
+const cabin = shape(
+  [taperedBox(.72, .70), 0, .54, .12, 2.0, .66, 2.60],
+  [box, 0, -.34, 0, 2.12, .24, 4.43],
+);
+const headlights = shape(
+  [frontLens, -.79, .04, -2.31, .48, .19, .49],
+  [frontLens, .79, .04, -2.31, .48, .19, .49],
+);
+const tailLights = shape(
+  [rearLens, -.84, -.04, 2.32, .39, .20, .48],
+  [rearLens, .84, -.04, 2.32, .39, .20, .48],
+);
+const roadLights = mergeGeometries([
+  colorGeometry(headlights, white.color),
+  colorGeometry(tailLights, new THREE.Color('#ff562f').multiplyScalar(3.2)),
+]);
 
 export function addMovingTraffic(parent, circuits, roads, footpaths, seed) {
   const random = randomFor(seed);
@@ -37,7 +106,7 @@ export function addMovingTraffic(parent, circuits, roads, footpaths, seed) {
   const dummy = new THREE.Object3D();
   dummy.rotation.order = 'YXZ';
   const parts = [];
-  const part = (geometry, material, count, start, details, colors = false) => {
+  const part = (geometry, material, count, start, colors = false) => {
     if (!count) return;
     const mesh = new THREE.InstancedMesh(geometry, material, count);
     if (colors) {
@@ -46,16 +115,16 @@ export function addMovingTraffic(parent, circuits, roads, footpaths, seed) {
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
     parent.add(mesh);
-    parts.push({ mesh, count, start, details });
+    parts.push({ mesh, count, start });
   };
-  part(shuttle, hull, airCount, 0, [0, 0, 0, 2.15, 1.23, 4.5], true);
-  part(shuttle, canopy, airCount, 0, [0, 1, -.55, 1.39, .93, 2.77]);
-  part(box, exhaust, airCount, 0, [0, -.1, 4.2, 2.9, .25, .67]);
-  part(box, white, airCount, 0, [0, .05, -4.25, 1.75, .22, .35]);
+  part(airframe, hull, airCount, 0, true);
+  part(flightDeck, canopy, airCount, 0);
+  part(thrustPorts, exhaust, airCount, 0);
+  part(landingLights, white, airCount, 0);
   const roadCount = actors.length - airCount;
-  part(shuttle, hull, roadCount, airCount, [0, 0, 0, 1.45, .95, 2.6], true);
-  part(box, white, roadCount, airCount, [0, 0, -2.45, 1.45, .24, .21]);
-  part(box, red, roadCount, airCount, [0, 0, 2.45, 1.45, .26, .22]);
+  part(chassis, hull, roadCount, airCount, true);
+  part(cabin, canopy, roadCount, airCount);
+  part(roadLights, roadLamps, roadCount, airCount);
 
   const walkers = [];
   for (const [x, z, toX, toZ, count] of footpaths) {
@@ -68,7 +137,7 @@ export function addMovingTraffic(parent, circuits, roads, footpaths, seed) {
   }
   const walkersAt = poses.length;
   walkers.forEach(() => poses.push({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, scale: 1 }));
-  part(person, pedestrian, walkers.length, walkersAt, [0, 0, 0, .53, 1.55, .44], true);
+  part(person, pedestrian, walkers.length, walkersAt, true);
 
   return time => {
     actors.forEach(({ curve, road, phase, speed, size }, index) => {
@@ -114,15 +183,12 @@ export function addMovingTraffic(parent, circuits, roads, footpaths, seed) {
       pose.yaw = -angle;
       pose.scale = size;
     });
-    for (const { mesh, count, start, details } of parts) {
-      const [x, y, z, w, h, d] = details;
+    for (const { mesh, count, start } of parts) {
       for (let i = 0; i < count; i++) {
-        const pose = poses[start + i];
-        const scale = pose.scale;
-        dummy.rotation.set(pose.pitch, pose.yaw, 0, 'YXZ');
-        dummy.position.set(x * scale, y * scale, z * scale).applyQuaternion(dummy.quaternion)
-          .add(point.set(pose.x, pose.y, pose.z));
-        dummy.scale.set(w * scale, h * scale, d * scale);
+        const { x, y, z, pitch, yaw, scale } = poses[start + i];
+        dummy.rotation.set(pitch, yaw, 0, 'YXZ');
+        dummy.position.set(x, y, z);
+        dummy.scale.setScalar(scale);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
       }
