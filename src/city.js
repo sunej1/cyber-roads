@@ -115,6 +115,39 @@ function water(parent) {
   return mesh;
 }
 
+function basinWater(time) {
+  return new THREE.ShaderMaterial({
+    uniforms: { time },
+    vertexShader: `
+      varying vec2 basinPos;
+      varying vec3 worldPos;
+      void main() {
+        vec4 point = instanceMatrix * vec4(position, 1.0);
+        basinPos = point.xz;
+        worldPos = (modelMatrix * point).xyz;
+        gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+      }`,
+    fragmentShader: `
+      uniform float time;
+      varying vec2 basinPos;
+      varying vec3 worldPos;
+      void main() {
+        vec2 p = basinPos;
+        float drift = sin(p.y*.33 + p.x*.13 - time*.69);
+        float wave = sin(p.x*.88 + p.y*.15 + time*1.4 + 1.45*drift);
+        float chop = sin(p.y*.73 - p.x*.28 - time*1.2 + .75*sin(p.x*.45 + time*.91));
+        float crest = smoothstep(.56, .99, wave + chop*.1);
+        float sheen = .55 + .30*sin(p.x*.19 - p.y*.28 + time*.52) + .15*chop;
+        float grazing = pow(1.0 - abs(normalize(cameraPosition - worldPos).y), 2.0);
+        vec3 color = vec3(.011, .035, .054) + vec3(.012, .024, .028)*(.5 + wave*.28 + chop*.22);
+        color += vec3(.09, .17, .19)*crest*sheen*(.62 + grazing);
+        gl_FragColor = vec4(color, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+}
+
 const stone = new MeshStandardMaterial({ color: '#323a3b', roughness: .75 });
 const publicGreen = new MeshStandardMaterial({ color: '#415044', roughness: .9 });
 const paintedLines = new MeshBasicMaterial({ color: '#afa17c' });
@@ -151,7 +184,7 @@ function entryPath(items, building) {
     building.x+dx*end,building.z+dz*end,Math.min(building.w*.46,building.retail?9.3:4.2),.33);
 }
 
-function ground(scene, buildings) {
+function ground(scene, buildings, waterTime) {
   scene.add(shapeMesh(shore, 0, stone));
   const cliff = new MeshBasicMaterial({ color: '#1d2433' });
   const platforms = [
@@ -363,7 +396,7 @@ function ground(scene, buildings) {
   batch(scene, pavingPlane, pavementGlow, spill);
   batch(scene, box, neon('#9bdbfa', 2.1), fountains);
   batch(scene, box, new MeshBasicMaterial({ color: '#174543' }), grass);
-  batch(scene, box, new MeshBasicMaterial({ color: '#276583' }), pools);
+  batch(scene, box, basinWater(waterTime), pools);
   batch(scene, box, new MeshStandardMaterial({ roughness: .62 }), awnings);
   batch(scene, new THREE.IcosahedronGeometry(1, 1), new MeshStandardMaterial({ roughness: 1, emissive: '#0a2824', emissiveIntensity: .65 }), leaves);
   return streetFixtures(lamps);
@@ -778,7 +811,7 @@ export function createCity(scene) {
   const coreBuildings = generateBuildings();
   const streamer = streamTiles(scene);
   mountains(city);
-  const coreFixtures=ground(city,coreBuildings);
+  const coreFixtures=ground(city,coreBuildings,ocean.material.uniforms.time);
   const coreDetail=detailHierarchy(towers(city,coreBuildings));
   const details=streetDetails(scene);
   const lighting=streetLighting(scene);
