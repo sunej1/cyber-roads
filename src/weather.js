@@ -61,6 +61,11 @@ export const streetFog = /* glsl */ `
 
   float readFog(float height) { return exp(-max(0.0,height-1.0)/13.0); }
 
+  float lampIntegral(float along,float chordSquared) {
+    float alongSquared=along*along;
+    return along*(chordSquared*(chordSquared-2.0/3.0*alongSquared)+.2*alongSquared*alongSquared);
+  }
+
   vec3 fogStreet(vec3 color,vec3 viewPoint,vec3 worldPoint) {
     vec3 eye=viewToWorld[3].xyz;
     vec3 ray=normalize(viewPoint);
@@ -77,13 +82,21 @@ export const streetFog = /* glsl */ `
     vec3 scatter=vec3(0.0);
     for (int i=0;i<6;i++) {
       if (lamps[i].w<=0.0) continue;
-      float passed=clamp(dot(lamps[i].xyz,ray),0.0,distanceInFog);
       float radius=lamps[i].w*.57;
-      float spread=1.0-length(lamps[i].xyz-ray*passed)/radius;
-      if (spread<=0.0) continue;
-      float localHeight=mix(eye.y,end.y,passed/max(.1,distanceInFog));
-      scatter+=lampTint[i]*spread*spread*readFog(localHeight)*smoothstep(.5,8.0,passed)
-        *exp(-density*passed/max(.1,distanceInFog));
+      vec3 lamp=lamps[i].xyz/radius;
+      float center=dot(lamp,ray);
+      vec3 across=lamp-ray*center;
+      float chordSquared=1.0-dot(across,across);
+      if (chordSquared<=0.0) continue;
+      float chord=sqrt(chordSquared);
+      float entry=max(-chord,-center);
+      float exit=min(chord,distanceInFog/radius-center);
+      if (exit<=entry) continue;
+      // Integrate the squared radial falloff only where the light volume is visible.
+      float glow=max(0.0,lampIntegral(exit,chordSquared)-lampIntegral(entry,chordSquared))*15.0/16.0;
+      float midpoint=(center+.5*(entry+exit))*radius/max(.1,distanceInFog);
+      float localHeight=mix(eye.y,end.y,midpoint);
+      scatter+=lampTint[i]*glow*readFog(localHeight)*exp(-density*midpoint);
     }
     float rise=abs((viewToWorld*vec4(ray,0.0)).y);
     float horizon=smoothstep(650.0,3900.0,distanceToSurface)*exp(-rise*15.0);
