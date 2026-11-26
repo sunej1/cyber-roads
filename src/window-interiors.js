@@ -8,6 +8,11 @@ const interiors = /* glsl */ `
     return fract((p.x+p.y)*p.z);
   }
 
+  float roomShape(vec2 at,vec2 lo,vec2 hi) {
+    vec2 edge=min(at-lo,hi-at);
+    return smoothstep(-.012,.012,min(edge.x,edge.y));
+  }
+
   void openWindow(vec2 uv,vec3 view,vec3 normal,inout vec3 paint,inout vec3 emission,
       inout float rough,inout float metal) {
     vec2 grid=vec2(uv.x,-uv.y)*roomBay.xy;
@@ -21,7 +26,7 @@ const interiors = /* glsl */ `
     vec2 opening=vec2(1.0-2.0*start.x,.83-slab);
     vec2 at=(pane-start)/opening;
     if (detail<=0.0 || any(lessThan(at,vec2(0.0))) || any(greaterThan(at,vec2(1.0)))
-        || abs(pane.x-.533)<.021) return;
+        || (pane.x>=.51 && pane.x<=.555)) return;
 
     float orientation=sign(changeX.x*changeY.y-changeX.y*changeY.x);
     vec3 across=normalize(surfaceX*changeY.y-surfaceY*changeX.y)*orientation;
@@ -29,6 +34,7 @@ const interiors = /* glsl */ `
     vec3 aim=-normalize(view);
     float downGlass=clamp(-dot(aim,normal),.045,1.0);
     float variant=roomHash(cell+roomPanel.zz);
+    float floorUse=roomHash(vec2(cell.y,roomPanel.z));
     vec3 ray=vec3(dot(aim,across)/(opening.x*roomBay.z),dot(aim,down)/(opening.y*roomBay.w),
       downGlass/mix(2.05,4.5,variant));
     vec2 safeRay=mix(vec2(-1.0),vec2(1.0),step(0.0,ray.xy))*max(abs(ray.xy),vec2(.0001));
@@ -49,21 +55,37 @@ const interiors = /* glsl */ `
     brightness=mix(brightness,.35+.78*fixtures,ceiling);
     brightness=mix(brightness,.22+.16*room.z,floorHit);
 
-    vec2 furniture=at+ray.xy*(.58/ray.z);
-    float desk=smoothstep(.56,.59,furniture.y)*(1.0-smoothstep(.69,.71,furniture.y));
-    desk*=smoothstep(.12,.14,furniture.x)*(1.0-smoothstep(.85,.88,furniture.x));
-    float divider=(1.0-smoothstep(.09,.116,abs(furniture.x-mix(.24,.74,variant))))
-      *smoothstep(.40,.43,furniture.y)*(1.0-smoothstep(.72,.74,furniture.y));
-    float occupied=step(.58,variant)*step(.59,room.z);
-    brightness*=1.0-occupied*max(desk*.74,divider*.65);
-
-    float shadeDepth=variant<.25 ? .29+variant*2.27 : .0;
+    bool apartment=floorUse>=.43 && floorUse<.83;
+    vec3 tint=apartment ? vec3(1.18,1.0,.76) : floorUse<.43 ? vec3(.88,1.04,1.17) : vec3(.76,.99,1.08);
+    float shadeDepth=apartment && variant<.52 ? .22+variant*.66 : 0.0;
+    if (room.z>.58) {
+      // Project furnishings behind the glass and clip them against the room walls.
+      vec2 furniture=at+ray.xy*(.58/ray.z);
+      if (variant>.5) furniture.x=1.0-furniture.x;
+      if (floorUse<.43) {
+        float desk=roomShape(furniture,vec2(.12,.66),vec2(.86,.73));
+        float monitor=roomShape(furniture,vec2(.21,.43),vec2(.52,.61));
+        float stand=roomShape(furniture,vec2(.34,.61),vec2(.39,.68));
+        brightness=brightness*(1.0-.76*max(desk,max(monitor,stand)))+.20*monitor;
+      } else if (apartment) {
+        float sofa=roomShape(furniture,vec2(.11,.60),vec2(.60,.84));
+        float seat=roomShape(furniture,vec2(.18,.71),vec2(.54,.75));
+        float lamp=roomShape(furniture,vec2(.68,.36),vec2(.85,.49));
+        float pole=roomShape(furniture,vec2(.75,.47),vec2(.78,.85));
+        brightness=brightness*(1.0-.71*max(sofa,pole))+.12*seat+.48*lamp;
+      } else {
+        float rack=roomShape(furniture,vec2(.15,.24),vec2(.62,.89));
+        float shelves=step(.77,fract(furniture.y*12.0));
+        float indicators=roomShape(furniture,vec2(.43,.3),vec2(.56,.85))*shelves;
+        brightness=brightness*(1.0-rack*(.78-.25*shelves))+.34*indicators;
+      }
+    }
     float shade=(1.0-smoothstep(shadeDepth-.018,shadeDepth+.018,at.y))*step(.02,shadeDepth);
     float louvers=.44+.56*smoothstep(.19,.47,fract(at.y*15.0));
     vec2 lightSample=(cell+vec2(.39,start.y+opening.y*.27))/roomBay.xy;
     vec3 roomLight=textureLod(emissiveMap,vec2(lightSample.x,-lightSample.y),0.0).rgb;
     float through=1.0-pow(1.0-downGlass,2.65);
-    vec3 inside=roomLight*(brightness*(1.0-shade*.91) + shade*louvers*.06);
+    vec3 inside=tint*roomLight*(brightness*(1.0-shade*.91) + shade*louvers*.06);
     vec3 glazing=vec3(.035,.055,.075)*mix(.49,1.4,variant)*(1.0-through*.62);
     paint=mix(paint,glazing+shade*louvers*vec3(.054,.049,.041),detail);
     emission=mix(emission,inside*through,detail);
