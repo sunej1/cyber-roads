@@ -1,13 +1,20 @@
 import * as THREE from 'three';
+import { batch, box, neon } from './scene-parts.js';
 
-export function streetFixtures(items, offsetX = 0, offsetZ = 0) {
+const bulb = neon('#ffffff', 2.4);
+const lampColors = ['#ffbe7d', '#ffd9a6', '#ade1ff', '#ffba82'];
+
+export function addStreetLamps(scene, items, offsetX = 0, offsetZ = 0) {
   const fixtures=[];
-  const colors=['#ffbe7d','#ffd9a6','#ade1ff','#ffba82'];
-  for (const [x,y,z,w,h,d] of items) {
-    if (y<3.28 || y>8.5 || h>1.2 || w>3.4 || d>3.4) continue;
-    const id=Math.abs(Math.round(x*.73+z*.39));
-    fixtures.push({x:x+offsetX,y:y-.19,z:z+offsetZ,color:colors[id%colors.length],power:185,range:33});
-  }
+  const emitters=items.map(([x,y,z,w,h,d,rotation,tint])=>{
+    const lightsStreet=y>=3.28 && y<=8.5 && h<=1.2 && w<=3.4 && d<=3.4;
+    const worldX=x+offsetX, worldZ=z+offsetZ;
+    const id=Math.abs(Math.round(worldX*.73+worldZ*.39));
+    const color=tint??(lightsStreet?lampColors[id%lampColors.length]:'#ffcc87');
+    if (lightsStreet) fixtures.push({x:worldX,y:y-.19,z:worldZ,color,power:185,range:33});
+    return [x,y,z,w,h,d,rotation,color];
+  });
+  batch(scene,box,bulb,emitters);
   return fixtures;
 }
 
@@ -27,18 +34,23 @@ export function streetLighting(scene) {
       if (now>=nextPick) {
         nextPick=now+112;
         camera.getWorldDirection(heading);
-        const x=camera.position.x+origin.x+heading.x*39;
-        const z=camera.position.z+origin.z+heading.z*39;
+        const x=camera.position.x+origin.x, y=camera.position.y, z=camera.position.z+origin.z;
+        const retained=new Set(slots.flatMap(slot=>slot.desired?[identity(slot.desired)]:[]));
         const choices=[];
         for (const group of groups) for (const source of group) {
-          const dx=source.x-x,dz=source.z-z;
-          const d=dx*dx+dz*dz;
-          if (d>137**2) continue;
-          const align=dx*heading.x+dz*heading.z;
-          choices.push({source,score:d*(source.range<24?.83:1)+Math.max(0,-align)*19});
+          const dx=source.x-x, dy=source.y-y, dz=source.z-z;
+          const distanceSquared=dx*dx+dy*dy+dz*dz;
+          if (distanceSquared>137**2) continue;
+          const ahead=dx*heading.x+dy*heading.y+dz*heading.z;
+          const key=identity(source);
+          const score=Math.sqrt(distanceSquared)-source.range*.35-THREE.MathUtils.clamp(ahead*.45,-18,24);
+          choices.push({key,source,score:score-(retained.has(key)?4:0)});
         }
-        const selected=new Map(choices.sort((a,b)=>a.score-b.score).slice(0,slots.length)
-          .map(({source})=>[identity(source),source]));
+        const selected=new Map();
+        for (const {key,source} of choices.sort((a,b)=>a.score-b.score)) {
+          if (!selected.has(key)) selected.set(key,source);
+          if (selected.size===slots.length) break;
+        }
         for (const slot of slots) {
           const key=slot.source && identity(slot.source);
           slot.desired=selected.get(key) ?? null;

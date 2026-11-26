@@ -576,7 +576,7 @@ function boot() {
     city = createCity(scene);
     craft = createCraft(scene);
     const coarse = matchMedia('(pointer: coarse)').matches;
-    updateRain = createRain(scene,camera,coarse);
+    updateRain = createRain(scene,camera,coarse,city.lights);
 
     const target=new THREE.WebGLRenderTarget(1,1,{type:hdr?THREE.HalfFloatType:THREE.UnsignedByteType});
     target.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);

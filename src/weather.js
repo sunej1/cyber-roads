@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { randomFor } from './flight.js';
 
-export function createRain(scene, camera, fewerDrops) {
+export function createRain(scene, camera, fewerDrops, lights) {
   const card = new THREE.PlaneGeometry(1, 1);
   const geometry = new THREE.InstancedBufferGeometry().copy(card);
   card.dispose();
@@ -10,20 +10,38 @@ export function createRain(scene, camera, fewerDrops) {
   geometry.setAttribute('seed', new THREE.InstancedBufferAttribute(
     Float32Array.from({ length: geometry.instanceCount * 4 }, () => random()), 4,
   ));
+  const lampPositions = lights.map(() => new THREE.Vector4());
+  const lampColors = lights.map(() => new THREE.Color());
   const material = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 } },
+    uniforms: {
+      time: { value: 0 },
+      lampPositions: { value: lampPositions },
+      lampColors: { value: lampColors },
+    },
     depthWrite: false,
     transparent: true,
     vertexShader: /* glsl */ `
       uniform float time;
+      uniform vec4 lampPositions[${lights.length}];
+      uniform vec3 lampColors[${lights.length}];
       attribute vec4 seed;
       varying vec2 streak;
       varying float opacity;
+      varying vec3 tint;
       void main() {
         vec3 span=vec3(80.0,48.0,80.0);
         vec3 velocity=vec3(4.0,-25.0,-2.3)*mix(.74,1.23,seed.w);
         vec3 offset=mod(seed.xyz*span+velocity*time-cameraPosition+span*.5,span)-span*.5;
         vec3 at=cameraPosition+offset;
+        tint=vec3(.23,.36,.48);
+        for (int i=0;i<${lights.length};i++) {
+          vec4 lamp=lampPositions[i];
+          if (lamp.w<=0.0) continue;
+          vec3 delta=lamp.xyz-at;
+          float distanceSquared=dot(delta,delta);
+          float edge=max(0.0,1.0-distanceSquared/(lamp.w*lamp.w));
+          tint+=lampColors[i]*edge*edge/(1.0+.035*distanceSquared);
+        }
         vec4 view=viewMatrix*vec4(at,1.0);
         vec3 along=(viewMatrix*vec4(velocity*mix(.025,.076,seed.w),0.0)).xyz;
         vec2 across=normalize(vec2(along.y,-along.x)+vec2(.0001,0.0));
@@ -37,10 +55,11 @@ export function createRain(scene, camera, fewerDrops) {
     fragmentShader: /* glsl */ `
       varying vec2 streak;
       varying float opacity;
+      varying vec3 tint;
       void main() {
         float across=1.0-smoothstep(.05,.5,abs(streak.x-.5));
         float along=smoothstep(0.0,.34,streak.y)*(1.0-smoothstep(.74,1.0,streak.y));
-        gl_FragColor=vec4(.39,.56,.68,opacity*across*along);
+        gl_FragColor=vec4(tint,opacity*across*along);
       }`,
   });
   const rain = new THREE.Mesh(geometry, material);
@@ -50,7 +69,13 @@ export function createRain(scene, camera, fewerDrops) {
   scene.add(rain);
   return (time, reducedMotion) => {
     rain.visible = !reducedMotion;
+    if (reducedMotion) return;
     material.uniforms.time.value = time;
+    for (const [i, light] of lights.entries()) {
+      const { x, y, z } = light.position;
+      lampPositions[i].set(x, y, z, light.intensity > .2 ? light.distance : 0);
+      lampColors[i].copy(light.color).multiplyScalar(light.intensity * .009);
+    }
   };
 }
 
