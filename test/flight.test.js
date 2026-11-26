@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { Vector3 } from 'three';
 import { closestSpine, coreEdge, districtForPosition, landmarksNear, spinePoint, streetVertex, tileAt, tileSize } from '../src/extent.js';
 import { airCircuits, streetRuns } from '../src/traffic.js';
-import { streetFront, streets } from '../src/meridian-plan.js';
+import { gardenBasins, gardenWalks, streetFront, streets } from '../src/meridian-plan.js';
 import { generateTile, localTraffic } from '../src/world.js';
 import { advanceFlight, departure, districtAt, districts, generateBuildings, harborExit, intersectsBuilding, length, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route } from '../src/flight.js';
 
@@ -147,6 +147,32 @@ test('Meridian storefronts face streets and through roads skirt its park and squ
     const front=streetFront({x,z,w:quarterTurn?d:w,d:quarterTurn?w:d});
     assert.equal(front?.yaw,yaw);
   }
+});
+
+test('Glass Gardens meets all eight street ends and leaves its walks clear of the basins', () => {
+  const inPark = (x, z) => Math.abs(x - park.x) < park.w / 2 && Math.abs(z - park.z) < park.d / 2;
+  const entrances = new Set();
+  for (const { x, z, toX, toZ, width } of gardenWalks) {
+    const horizontal = z === toZ;
+    const bounds = horizontal
+      ? [x, toX, z - width / 2, z + width / 2]
+      : [x - width / 2, x + width / 2, z, toZ];
+    for (const [px, pz] of [[x, z], [toX, toZ]]) {
+      if (inPark(px, pz)) continue;
+      entrances.add(`${px}/${pz}`);
+      const [along, center] = horizontal ? [px, pz] : [pz, px];
+      assert.ok(streets.some(road => road.horizontal === horizontal && road.center === center
+        && (road.start === along || road.end === along)), `garden entrance at ${px}/${pz}`);
+    }
+    const [left, right, top, bottom] = bounds;
+    for (const basin of gardenBasins) {
+      assert.ok(inPark(basin.x - basin.w / 2, basin.z - basin.d / 2));
+      assert.ok(inPark(basin.x + basin.w / 2, basin.z + basin.d / 2));
+      assert.ok(basin.x + basin.w / 2 < left || basin.x - basin.w / 2 > right
+        || basin.z + basin.d / 2 < top || basin.z - basin.d / 2 > bottom);
+    }
+  }
+  assert.equal(entrances.size, 8);
 });
 
 test('the central air lane weaves between tower walls and passes the five mapped landmarks', () => {

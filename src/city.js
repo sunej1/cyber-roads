@@ -4,7 +4,7 @@ import { towers, facadeColors, structural, trim } from './architecture.js';
 import { setScreenTime } from './ads.js';
 import { generateBuildings, park, plaza, randomFor, shore } from './flight.js';
 import { airCircuits, streetRuns } from './traffic.js';
-import { blockWidth, streets as streetGrid } from './meridian-plan.js';
+import { blockWidth, gardenBasins, gardenWalks, streets as streetGrid } from './meridian-plan.js';
 import { addMovingTraffic } from './street-life.js';
 import { coreTile, districtForPosition, groundAt, riverAt, streetVertex, tileAt, tileSize } from './extent.js';
 import { generateTile, localTraffic } from './world.js';
@@ -115,6 +115,39 @@ function water(parent) {
   return mesh;
 }
 
+function basinWater(time) {
+  return new THREE.ShaderMaterial({
+    uniforms: { time },
+    vertexShader: `
+      varying vec2 basinPos;
+      varying vec3 worldPos;
+      void main() {
+        vec4 point = instanceMatrix * vec4(position, 1.0);
+        basinPos = point.xz;
+        worldPos = (modelMatrix * point).xyz;
+        gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
+      }`,
+    fragmentShader: `
+      uniform float time;
+      varying vec2 basinPos;
+      varying vec3 worldPos;
+      void main() {
+        vec2 p = basinPos;
+        float drift = sin(p.y*.33 + p.x*.13 - time*.69);
+        float wave = sin(p.x*.88 + p.y*.15 + time*1.4 + 1.45*drift);
+        float chop = sin(p.y*.73 - p.x*.28 - time*1.2 + .75*sin(p.x*.45 + time*.91));
+        float crest = smoothstep(.56, .99, wave + chop*.1);
+        float sheen = .55 + .30*sin(p.x*.19 - p.y*.28 + time*.52) + .15*chop;
+        float grazing = pow(1.0 - abs(normalize(cameraPosition - worldPos).y), 2.0);
+        vec3 color = vec3(.011, .035, .054) + vec3(.012, .024, .028)*(.5 + wave*.28 + chop*.22);
+        color += vec3(.09, .17, .19)*crest*sheen*(.62 + grazing);
+        gl_FragColor = vec4(color, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+  });
+}
+
 const stone = new MeshStandardMaterial({ color: '#323a3b', roughness: .75 });
 const publicGreen = new MeshStandardMaterial({ color: '#415044', roughness: .9 });
 const paintedLines = new MeshBasicMaterial({ color: '#afa17c' });
@@ -151,7 +184,7 @@ function entryPath(items, building) {
     building.x+dx*end,building.z+dz*end,Math.min(building.w*.46,building.retail?9.3:4.2),.33);
 }
 
-function ground(scene, buildings) {
+function ground(scene, buildings, waterTime) {
   scene.add(shapeMesh(shore, 0, stone));
   const cliff = new MeshBasicMaterial({ color: '#1d2433' });
   const platforms = [
@@ -221,14 +254,18 @@ function ground(scene, buildings) {
       lightsAlong(x - w / 2 + 4, z + side * (d / 2 - 3), x + w / 2 - 4, z + side * (d / 2 - 3), 13, 2.2, signs);
     }
   }
-  grass.push([park.x, .98, park.z, park.w - 13, .27, park.d - 13]);
-  for (const [x, z, w, d] of [[-66, 75, 28, 105], [64, 131, 40, 76], [4, 175, 172, 13]]) {
-    pools.push([x, 1.16, z, w, .15, d]);
-    for (const side of [-1, 1]) signs.push([x + side * w / 2, 1.4, z, .29, .33, d]);
+  grass.push([park.x, .88, park.z, park.w - 13, .21, park.d - 13]);
+  for (const { x, z, w, d } of gardenBasins) {
+    curbs.push([x, 1.19, z, w, .6, d]);
+    pools.push([x, 1.48, z, w - 3, .15, d - 3]);
+    for (const side of [-1, 1]) {
+      curbs.push([x + side * (w - 1.5) / 2, 1.47, z, 1.5, .38, d]);
+      curbs.push([x, 1.47, z + side * (d - 1.5) / 2, w - 3, .38, 1.5]);
+      signs.push([x + side * (w - 1.5) / 2, 1.67, z, .34, .12, d - 6]);
+    }
   }
-  for (const [x, z, toX, toZ] of [[-95, 146, 108, 49], [-90, 31, 90, 154], [-94, 103, 104, 103]]) {
-    line(curbs, x, 1.2, z, toX, toZ, 3.8);
-    lightsAlong(x, z, toX, toZ, 16, 3.1, signs);
+  for (const { x, z, toX, toZ, width } of gardenWalks) {
+    line(curbs, x, .59, z, toX, toZ, width, .96);
   }
   for (const side of [-1, 1]) {
     for (let i = -3; i <= 3; i++) {
@@ -264,18 +301,19 @@ function ground(scene, buildings) {
     lamps.push([plaza.x + 23 * Math.sin(t), 1.4, plaza.z + 23 * Math.cos(t), 1.1, .3, 1.1]);
   }
 
+  const parkRandom = randomFor(30517);
   const tree = (x, z, large = false) => {
-    const h = large ? 5 + random() * 11 : 3 + random() * 5;
-    const green = ['#31746f', '#417461', '#286758', '#42878a', '#50916d'][Math.floor(random() * 5)];
+    const sample = large ? parkRandom : random;
+    const h = large ? 8 + sample() * 7 : 3 + sample() * 5;
+    const green = ['#31746f', '#417461', '#286758', '#42878a', '#50916d'][Math.floor(sample() * 5)];
     stems.push([x, h * .35 + .5, z, .55, h * .72, .55]);
-    leaves.push([x, h * .82 + .7, z, h * .39, h * .48, h * .39, random() * 5, green]);
-    leaves.push([x + .9, h * .59 + .8, z - .6, h * .28, h * .31, h * .34, random() * 5, green]);
-    if (large && random() < .34) signs.push([x, 1.5, z, 1.1, .33, 1.1]);
+    leaves.push([x, h * .82 + .7, z, h * .39, h * .48, h * .39, sample() * 5, green]);
+    leaves.push([x + .9, h * .59 + .8, z - .6, h * .28, h * .31, h * .34, sample() * 5, green]);
+    if (large && sample() < .34) signs.push([x, 1.5, z, 1.1, .33, 1.1]);
   };
-  for (let i = 0; i < 124; i++) {
-    const x = park.x + (random() - .5) * (park.w - 23), z = park.z + (random() - .5) * (park.d - 20);
-    if (Math.abs(z - 103) > 6 && Math.abs(z - (146 - (x + 95) * .48)) > 7 && Math.abs(z - (31 + (x + 90) * .68)) > 7
-      && Math.abs(x + 66) > 17 && Math.abs(x - 64) > 22 && z < 167) tree(x, z, true);
+  for (const side of [-1, 1]) {
+    for (const z of [34, 48, 80, 97, 114, 131, 148, 165]) tree(side * 91, z, true);
+    for (const z of [33, 48]) for (const x of [22, 44]) tree(side * x, z, true);
   }
   for (const side of [-1, 1]) {
     for (let i = 0; i < 7; i++) tree(plaza.x + side * 50, plaza.z - 51 + i * 17);
@@ -358,7 +396,7 @@ function ground(scene, buildings) {
   batch(scene, pavingPlane, pavementGlow, spill);
   batch(scene, box, neon('#9bdbfa', 2.1), fountains);
   batch(scene, box, new MeshBasicMaterial({ color: '#174543' }), grass);
-  batch(scene, box, new MeshBasicMaterial({ color: '#276583' }), pools);
+  batch(scene, box, basinWater(waterTime), pools);
   batch(scene, box, new MeshStandardMaterial({ roughness: .62 }), awnings);
   batch(scene, new THREE.IcosahedronGeometry(1, 1), new MeshStandardMaterial({ roughness: 1, emissive: '#0a2824', emissiveIntensity: .65 }), leaves);
   return streetFixtures(lamps);
@@ -396,7 +434,10 @@ function mountains(scene) {
 const footpaths = [
   [-286, 308, -286, 400, 8], [-153, 310, -153, 406, 8],
   [-271, 409, -168, 409, 9], [-269, 302, -170, 302, 7],
-  [-98, 103, 107, 103, 14], [-93, 145, 108, 48, 9],
+  ...gardenWalks.filter(walk => walk.walkers).map(({ x, z, toX, toZ, walkers }) => [
+    x + (x === toX ? 0 : 7), z + (z === toZ ? 0 : 7),
+    toX - (x === toX ? 0 : 7), toZ - (z === toZ ? 0 : 7), walkers,
+  ]),
   [-293, 924, 15, 924, 17], [-219, 722, -219, 805, 8],
 ];
 
@@ -770,7 +811,7 @@ export function createCity(scene) {
   const coreBuildings = generateBuildings();
   const streamer = streamTiles(scene);
   mountains(city);
-  const coreFixtures=ground(city,coreBuildings);
+  const coreFixtures=ground(city,coreBuildings,ocean.material.uniforms.time);
   const coreDetail=detailHierarchy(towers(city,coreBuildings));
   const details=streetDetails(scene);
   const lighting=streetLighting(scene);
