@@ -153,22 +153,14 @@ export function addMovingTraffic(parent, circuits, roads, footpaths, seed) {
         pose.pitch = Math.atan2(ahead.y, Math.hypot(ahead.x, ahead.z));
         pose.scale = size;
       } else {
-        const { horizontal, lane: cross, start, end, direction, path }=road;
-        if (path) {
-          const dx=path.toX-path.x, dz=path.toZ-path.z;
-          const at=direction===1?progress:1-progress;
-          const offset=direction*(path.kind==='avenue'?3.4:1.85)/(end-start);
-          pose.x=path.x+at*dx+dz*offset;
-          pose.z=path.z+at*dz-dx*offset;
-          pose.y=path.bridge?1.53:.99;
-          pose.yaw=Math.atan2(-dx*direction,-dz*direction);
-        } else {
-          const across=THREE.MathUtils.lerp(start,end,direction===1?progress:1-progress);
-          pose.x=horizontal?across:cross;
-          pose.y=.92;
-          pose.z=horizontal?cross:across;
-          pose.yaw=horizontal?-direction*Math.PI/2:direction===1?Math.PI:0;
-        }
+        const { start, end, direction, path }=road;
+        const dx=path.toX-path.x, dz=path.toZ-path.z;
+        const at=direction===1?progress:1-progress;
+        const offset=direction*(path.kind==='avenue'?3.4:1.85)/(end-start);
+        pose.x=path.x+at*dx+dz*offset;
+        pose.z=path.z+at*dz-dx*offset;
+        pose.y=path.bridge?1.53:.99;
+        pose.yaw=Math.atan2(-dx*direction,-dz*direction);
         pose.scale = size * Math.min(1, progress * 34, (1 - progress) * 34);
       }
     });

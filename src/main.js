@@ -52,7 +52,7 @@ for (const district of districts) {
 }
 element('route-length').textContent = 'Outbound tour';
 
-function drawMapBase() {
+function drawMapBase(buildings) {
   const ctx = mapBase.getContext('2d');
   ctx.fillStyle = '#171c2b';
   ctx.fillRect(0, 0, map.width, map.height);
@@ -73,12 +73,20 @@ function drawMapBase() {
   ctx.stroke();
   ctx.save();
   ctx.clip();
-  for (const { horizontal, center, start, end, kind } of cityStreets) {
-    ctx.strokeStyle = kind === 'avenue' ? '#838d85' : '#546771ae';
-    ctx.lineWidth = kind === 'avenue' ? 1.27 : .66;
+  for (const { x,z,w,d,yaw,h } of buildings) {
+    ctx.save();
+    ctx.translate(mapX(x),mapY(z));
+    ctx.rotate(-yaw);
+    ctx.fillStyle=h>100?'#455263':'#353f50';
+    ctx.fillRect(-w*mapScale/2,-d*mapScale/2,w*mapScale,d*mapScale);
+    ctx.restore();
+  }
+  for (const { x, z, toX, toZ, kind } of cityStreets) {
+    ctx.strokeStyle = kind === 'avenue' ? '#a5a79a' : kind === 'quay' ? '#76978e' : '#546771ae';
+    ctx.lineWidth = kind === 'avenue' ? 1.65 : kind === 'quay' ? 1.12 : .66;
     ctx.beginPath();
-    ctx.moveTo(mapX(horizontal?start:center), mapY(horizontal?center:start));
-    ctx.lineTo(mapX(horizontal?end:center), mapY(horizontal?center:end));
+    ctx.moveTo(mapX(x), mapY(z));
+    ctx.lineTo(mapX(toX), mapY(toZ));
     ctx.stroke();
   }
   ctx.fillStyle = '#46736f';
@@ -109,7 +117,6 @@ function drawMapBase() {
   ctx.beginPath();
   ctx.moveTo(422, 44); ctx.lineTo(417, 54); ctx.lineTo(427, 54); ctx.closePath(); ctx.fill();
 }
-drawMapBase();
 
 const keyMap = new Map(Object.entries({
   KeyW: 'throttle', ArrowUp: 'throttle', KeyS: 'brake', ArrowDown: 'brake',
@@ -574,6 +581,7 @@ function boot() {
     const hdr=renderer.extensions.has('EXT_color_buffer_float');
     if (hdr) installSkyProbe(renderer,scene);
     city = createCity(scene);
+    drawMapBase(city.buildings);
     craft = createCraft(scene);
     const coarse = matchMedia('(pointer: coarse)').matches;
     updateRain = createRain(scene,camera,coarse);
