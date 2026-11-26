@@ -28,6 +28,8 @@ Building shells stream with the city tiles. A second hierarchy groups storefront
 
 The surface atlas was generated with the built-in ImageGen tool as four orthographic materials for cast concrete, gunmetal cladding, block masonry, and wet asphalt. Close window panes show view-dependent interiors with ceilings, blinds, and furniture. At a distance they use filtered façade textures.
 
+Ground materials layer scanned surface detail with larger stains, repairs, and wear patterns that are visible in flight. The asphalt and meadow maps come from Cozy Roads. The [worn asphalt](https://polyhaven.com/a/worn_asphalt), [concrete pavers](https://polyhaven.com/a/square_concrete_pavers), [gravel](https://polyhaven.com/a/gravel_floor_03), and meadow source assets are [Poly Haven CC0 scans](https://polyhaven.com/license).
+
 ## Develop locally
 
 Use Node.js 22.12 or later. The game uses Vite, Three.js, and WebGL 2. The buildings, landscape, and vehicle are generated in code. The opening tour follows an arc-length-sampled 3D spline. Beyond the harbor, deterministic 640 m tiles stream around the player, and buildings leave clearance along the outbound air lanes.

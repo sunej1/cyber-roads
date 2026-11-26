@@ -8,7 +8,7 @@ import { gardenBasins, gardenWalks, harborMarket, streetPoint, streets as street
 import { addMovingTraffic } from './street-life.js';
 import { coreTile, districtForPosition, groundAt, riverAt, streetVertex, tileAt, tileSize } from './extent.js';
 import { generateTile, localTraffic } from './world.js';
-import { asphalt } from './surface-materials.js';
+import { asphalt, gravel, groundPaint, paving, terrainMaterial, turf, yardSurface } from './ground-materials.js';
 import { detailHierarchy } from './detail-selection.js';
 import { streetDetails } from './streetscape.js';
 import { addStreetLamps, streetLighting } from './street-lighting.js';
@@ -149,9 +149,6 @@ function basinWater(time) {
   });
 }
 
-const stone = new MeshStandardMaterial({ color: '#323a3b', roughness: .75 });
-const publicGreen = new MeshStandardMaterial({ color: '#415044', roughness: .9 });
-const paintedLines = new MeshBasicMaterial({ color: '#afa17c' });
 const coldLamp = neon('#9ddbe2', 1.65);
 const hazardLamp = neon('#ff6b41', 2.4);
 const pavementGlow = new THREE.ShaderMaterial({
@@ -185,16 +182,15 @@ function entryPath(items, building) {
 }
 
 function ground(scene, buildings, waterTime) {
-  scene.add(shapeMesh(shore, 0, stone));
-  const cliff = new MeshBasicMaterial({ color: '#1d2433' });
+  scene.add(shapeMesh(shore, 0, gravel));
   const platforms = [
     [[-493, 936], [-325, 937], [-329, 1065], [-469, 1065]],
     [[-93, 902], [36, 905], [48, 1106], [-87, 1106]],
     [[187, 868], [300, 872], [326, 1047], [211, 1060]],
     [[440, 719], [530, 694], [615, 854], [537, 889]],
   ];
-  platforms.forEach(points => scene.add(shapeMesh(points, .4, cliff)));
-  const curbs = [], streets = [], paint = [], poles = [], lamps = [], grass = [], trees = [], shrubs = [], pools = [];
+  platforms.forEach(points => scene.add(shapeMesh(points, .4, paving)));
+  const curbs = [], streets = [], paint = [], poles = [], lamps = [], trees = [], shrubs = [], pools = [], beds = [];
   const signs = [], fountains = [], buoys = [], awnings = [], spill = [], signals = [];
   const random = randomFor(13652);
   const lightsAlong = (x, z, toX, toZ, spacing, height, target = lamps) => {
@@ -249,7 +245,6 @@ function ground(scene, buildings, waterTime) {
       lightsAlong(x - w / 2 + 4, z + side * (d / 2 - 3), x + w / 2 - 4, z + side * (d / 2 - 3), 13, 2.2, signs);
     }
   }
-  grass.push([park.x, .88, park.z, park.w - 13, .21, park.d - 13, 0, '#174543']);
   for (const { x, z, w, d } of gardenBasins) {
     curbs.push([x, 1.19, z, w, .6, d]);
     pools.push([x, 1.48, z, w - 3, .15, d - 3]);
@@ -261,6 +256,30 @@ function ground(scene, buildings, waterTime) {
   }
   for (const { x, z, toX, toZ, width } of gardenWalks) {
     line(curbs, x, .59, z, toX, toZ, width, .96);
+    const span = Math.hypot(toX-x,toZ-z);
+    const dx = (toX-x)/span, dz = (toZ-z)/span;
+    for (const offset of [-width/2+.62,width/2-.62]) {
+      const cuts = [[span-1,span-1]];
+      for (const cross of gardenWalks) {
+        if (dx*(cross.toX-cross.x)+dz*(cross.toZ-cross.z)!==0) continue;
+        const side = (cross.z-z)*dx-(cross.x-x)*dz;
+        const farSide = (cross.toZ-z)*dx-(cross.toX-x)*dz;
+        if (offset<Math.min(side,farSide) || offset>Math.max(side,farSide)) continue;
+        const at = (cross.x-x)*dx+(cross.z-z)*dz;
+        if (at+cross.width/2>1 && at-cross.width/2<span-1) cuts.push([at-cross.width/2,at+cross.width/2]);
+      }
+      let cursor = 1;
+      for (const [start,end] of cuts.sort((a,b) => a[0]-b[0])) {
+        if (start>cursor) line(curbs,x+dx*cursor-dz*offset,1.074,z+dz*cursor+dx*offset,
+          x+dx*start-dz*offset,z+dz*start+dx*offset,.52,.01,'#929b9d');
+        cursor = Math.max(cursor,end);
+      }
+    }
+  }
+  const innerX = plaza.w/2-8, innerZ = plaza.d/2-8;
+  for (const side of [-1,1]) {
+    line(curbs,plaza.x-innerX,.898,plaza.z+side*innerZ,plaza.x+innerX,plaza.z+side*innerZ,1.75,.015,'#8a969f');
+    line(curbs,plaza.x+side*innerX,.900,plaza.z-innerZ,plaza.x+side*innerX,plaza.z+innerZ,1.75,.015,'#8a969f');
   }
   for (const side of [-1, 1]) {
     for (let i = -3; i <= 3; i++) {
@@ -317,7 +336,7 @@ function ground(scene, buildings, waterTime) {
   for (const side of [-1, 1]) for (const center of [94, 156]) {
     for (const [x, width, depth] of [[side * 60, 4.5, 36], [side * 90, 12, 39]]) {
       curbs.push([x, 1.04, center, width + .72, .30, depth + .72]);
-      grass.push([x, 1.18, center, width, .14, depth, 0, '#303b32']);
+      beds.push([x, 1.18, center, width, .14, depth, 0, '#aa9779']);
       for (let offset = -depth / 2 + 2.5; offset < depth / 2 - 1.5; offset += 2.65) {
         const h = 1.45 + parkRandom() * (width > 5 ? 1.40 : .65);
         const tint = ['#7d9e50', '#a78b4b', '#638971'][Math.floor(parkRandom() * 3)];
@@ -405,15 +424,16 @@ function ground(scene, buildings, waterTime) {
   }
 
   batch(scene, box, asphalt, streets);
-  batch(scene, box, stone, curbs);
-  batch(scene, box, paintedLines, paint);
+  batch(scene, box, paving, curbs);
+  batch(scene, box, groundPaint, paint);
   batch(scene, box, structural, poles.concat(buoys));
   const fixtures=addStreetLamps(scene,lamps);
   batch(scene, box, coldLamp, signs);
   batch(scene, box, hazardLamp, signals);
   batch(scene, pavingPlane, pavementGlow, spill);
   batch(scene, box, neon('#9bdbfa', 2.1), fountains);
-  batch(scene, box, new MeshBasicMaterial(), grass);
+  batch(scene, box, turf, [[park.x, .88, park.z, park.w - 13, .21, park.d - 13]]);
+  batch(scene, box, gravel, beds);
   batch(scene, box, basinWater(waterTime), pools);
   batch(scene, box, new MeshStandardMaterial({ roughness: .62 }), awnings);
   addPlants(scene, 'garden', trees);
@@ -486,35 +506,35 @@ distantTowers.onBeforeCompile = shader => {
 };
 const tilesRadius = 3;
 
-const terrainMaterial = new MeshStandardMaterial({ vertexColors:true, roughness:.91 });
 const circle = new THREE.CylinderGeometry(.5,.5,1,16);
 const octagon = new THREE.CylinderGeometry(.30,.5,1,8);
 const paintedMetal = new MeshStandardMaterial({ roughness:.67, metalness:.36 });
 const bridgeGlass = neon('#729e95',.9);
 const steel = new MeshStandardMaterial({ color:'#747674', roughness:.66, metalness:.46 });
 const landColors = {
-  downtown:new Color('#393f44'), canal:new Color('#3b4647'), industry:new Color('#494741'), outskirts:new Color('#424e3d'),
+  downtown:new Color('#bec6cc'), canal:new Color('#a9b5b4'), industry:new Color('#b9aa94'), outskirts:new Color('#acb6a4'),
 };
-const dampBank = new Color('#3b4647');
+const dampBank = new Color('#7f887c');
 
 function tileTerrain({x,z}) {
   const subdivisions=26;
   const geometry=new THREE.PlaneGeometry(tileSize,tileSize,subdivisions,subdivisions);
   geometry.rotateX(-Math.PI/2);
   const points=geometry.attributes.position;
-  const colors=[];
+  const colors=[], grass=[];
   const tint=new Color();
   for (let i=0;i<points.count;i++) {
     const worldX=points.getX(i)+x, worldZ=points.getZ(i)+z;
     const y=groundAt(worldX,worldZ);
     points.setY(i,y);
-    tint.copy(landColors[districtForPosition(worldX,worldZ).id]);
-    tint.lerp(dampBank,Math.min(1,-y*.28));
-    const noise=.89+.075*Math.sin(worldX*.16+worldZ*.11)+.06*Math.cos(worldZ*.022-worldX*.028);
-    tint.multiplyScalar(noise);
+    const {id}=districtForPosition(worldX,worldZ);
+    const bank=THREE.MathUtils.smoothstep(-y,0,4);
+    tint.copy(landColors[id]).lerp(dampBank,bank);
+    grass.push((id==='outskirts'?.55:id==='canal'?.24:.11)*(1-bank));
     colors.push(tint.r,tint.g,tint.b);
   }
   geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+  geometry.setAttribute('grassAmount',new THREE.Float32BufferAttribute(grass,1));
   geometry.computeVertexNormals();
   return new Mesh(geometry,terrainMaterial);
 }
@@ -522,7 +542,7 @@ function tileTerrain({x,z}) {
 function drawTile(tile, detail) {
   const group=new Group();
   group.add(tileTerrain(tile));
-  const paved=[], roads=[], marks=[], lights=[], pools=[], curbs=[], lawns=[], docks=[], tanks=[], rails=[];
+  const paved=[], yards=[], roads=[], marks=[], lights=[], pools=[], curbs=[], lawns=[], docks=[], tanks=[], rails=[];
   const trees=[], conifers=[];
   const random=randomFor(tile.seed ^ 0x1927347);
   const marketPaths=[];
@@ -557,7 +577,7 @@ function drawTile(tile, detail) {
         basins.push([bx,.31,bz,shorefront?35:26,.22,10,yaw]);
         for (const a of [-29,29]) for (const b of [-23,20]) {
           const [px,pz]=orient(a,b);
-          lawns.push([px,.42,pz,23,.34,10,yaw,'#54674e']);
+          lawns.push([px,.42,pz,23,.34,10,yaw]);
           planted(px,pz,1.22,.59);
           if (detail) curbs.push([px,.37,pz,24,.38,10.9,yaw]);
         }
@@ -580,7 +600,7 @@ function drawTile(tile, detail) {
         }
       }
     } else if (use==='tanks') {
-      paved.push([x,.14,z,119,.33,113,yaw]);
+      yards.push([x,.14,z,119,.33,113,yaw]);
       for (const a of [-24,24]) for (const b of [-25,25]) {
         const w=26+random()*10, h=7+random()*7.5;
         if (groundAt(x+a+tile.x,z+b+tile.z)<-1.1) continue;
@@ -592,10 +612,10 @@ function drawTile(tile, detail) {
         }
       }
     } else if (use==='yard') {
-      paved.push([x,.12,z,117,.24,113,yaw]);
+      yards.push([x,.12,z,117,.24,113,yaw]);
       const gateX=(front.ax+front.bx)/2+front.inX*front.road.width*.5;
       const gateZ=(front.az+front.bz)/2+front.inZ*front.road.width*.5;
-      line(paved,x,.19,z,gateX,gateZ,11,.34);
+      line(yards,x,.19,z,gateX,gateZ,11,.34);
       for (let i=0;i<12;i++) {
         const a=(i%4-1.5)*19,b=(Math.floor(i/4)-1)*25;
         if (groundAt(x+a+tile.x,z+b+tile.z)<-.9) continue;
@@ -635,7 +655,7 @@ function drawTile(tile, detail) {
         }
       }
     } else if (use==='works') {
-      paved.push([x,.10,z,106,.22,115,yaw]);
+      yards.push([x,.10,z,106,.22,115,yaw]);
     }
   }
 
@@ -703,7 +723,7 @@ function drawTile(tile, detail) {
       for (const side of [-1,1]) {
         const walk=kind==='avenue'?3.3:kind==='collector'?2.5:1.8;
         const s=side*(width*.5+walk*.5);
-        line(curbs,x+nx*s,y+.09,z+nz*s,toX+nx*s,toZ+nz*s,walk,.29);
+        line(paved,x+nx*s,y+.09,z+nz*s,toX+nx*s,toZ+nz*s,walk,.29);
         if (bridge) line(rails,x+nx*s,y+.82,z+nz*s,toX+nx*s,toZ+nz*s,.45,.61);
       }
     }
@@ -736,8 +756,9 @@ function drawTile(tile, detail) {
     }
   }
 
-  batch(group,box,stone,paved);
-  batch(group,box,publicGreen,lawns);
+  batch(group,box,paving,paved);
+  batch(group,box,yardSurface,yards);
+  batch(group,box,turf,lawns);
   batch(group,box,bridgeGlass,basins);
   batch(group,box,paintedMetal,docks);
   batch(group,circle,paintedMetal,tanks);
@@ -750,7 +771,7 @@ function drawTile(tile, detail) {
   let hierarchy=[], fixtures=[];
   if (detail) {
     batch(group,box,trim,curbs);
-    batch(group,box,paintedLines,marks);
+    batch(group,box,groundPaint,marks);
     fixtures=addStreetLamps(group,lights,tile.x,tile.z);
     batch(group,box,steel,rails);
     batch(group,box,bridgeGlass,glazing);
