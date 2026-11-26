@@ -46,6 +46,7 @@ export function createCraft(scene) {
   const glass = new THREE.MeshStandardMaterial({ color: '#16334f', metalness: .47, roughness: .17, emissive: '#142f55', emissiveIntensity: .44, side: THREE.DoubleSide });
   const light = (color, amount) => new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(amount) });
   const cyan = light('#70efff', 3), red = light('#ff386d', 3.05);
+  const exhaustLight = light('#70efff', 1.55);
   const white = light('#fff4d1', 2.35);
   const box = new THREE.BoxGeometry();
   const part = (material, x, y, z, w, h, d) => {
@@ -62,8 +63,12 @@ export function createCraft(scene) {
     hull([[-4.9, 1.42, -.58, -.25], [-2.8, 2.32, -.94, -.37], [4.4, 2.52, -.85, -.37], [5.68, 2.32, -.41, -.08]], trim),
     hull([[-2.83, 1.87, .59, .9], [-1.25, 1.59, .68, 1.94], [1.92, 1.57, .71, 2], [3.5, 2.02, .6, 1.05]], glass),
     hull([[-1.23, 1.11, 1.8, 2.01], [-.69, 1.47, 1.84, 2.12], [1.74, 1.45, 1.84, 2.1], [2.15, 1.21, 1.75, 1.98]], paint),
+    hull([[5.15, 2.44, -.27, .66], [5.67, 2.37, -.24, .61], [5.76, 2.12, -.16, .52]], trim),
   );
 
+  const nozzleProfile = [[.43, 0], [.54, .14], [.47, .4], [.33, .4], [.28, .16]];
+  const nozzleGeometry = new THREE.LatheGeometry(nozzleProfile.map(([r, z]) => new THREE.Vector2(r, z)), 8);
+  const coreGeometry = new THREE.CircleGeometry(.3, 8);
   const map = glowMap(), exhaust = [];
   for (const side of [-1, 1]) {
     const nacelle = hull([[-3.97, .37, -.15, .38], [-2.7, .74, -.66, .6], [3.95, .78, -.67, .69],
@@ -75,21 +80,26 @@ export function createCraft(scene) {
     part(white, side * 1.68, .09, -5.48, 1.11, .15, .18);
     const running = part(cyan, side * 3.05, -.48, .47, .10, .15, 6.83);
     running.rotation.y = side * .019;
-    part(trim, side * 1.27, .44, 5.05, 1.47, .61, 1.30);
-    part(red, side * 1.28, .38, 5.7, 1.51, .21, .16);
-    part(cyan, side * 2.61, -.20, 5.37, .57, .22, .13);
+    part(red, side * .84, .36, 5.78, .94, .16, .07);
+    part(red, side * 1.7, .36, 5.78, .46, .16, .07);
     part(trim, side * 1.9, 1.15, 3.94, .33, .81, 1.42).rotation.z = side * .13;
+    const nozzle = new THREE.Mesh(nozzleGeometry, paint);
+    nozzle.position.set(side * 2.61, -.15, 5.32);
+    nozzle.rotation.x = Math.PI / 2;
+    nozzle.scale.z = .76;
+    const core = new THREE.Mesh(coreGeometry, exhaustLight);
+    core.position.set(side * 2.61, -.15, 5.51);
+    core.scale.y = .76;
+    group.add(nozzle, core);
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map, color: '#5ef2ff', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     }));
-    sprite.position.set(side * 2.67, -.18, 5.55);
+    sprite.position.set(side * 2.61, -.15, 5.73);
     group.add(sprite);
     exhaust.push(sprite);
   }
   part(trim, 0, 1.56, 4.17, 4.62, .22, .95);
   part(paint, 0, 1.68, 4.17, 4.37, .08, .78);
-  part(red, 0, .69, 5.18, .82, .07, .26);
-  part(trim, 0, .43, 5.54, .85, .39, .18);
   for (let i = -2; i <= 2; i++) part(trim, i * .44, .79, -2.91, .23, .09, 1.52);
   scene.add(group);
   return {
@@ -101,7 +111,7 @@ export function createCraft(scene) {
       const glow = 2.2 + flight.speed * .027 + Math.sin(time * 12) * .15 + (boosting ? 1.7 : 0);
       for (const sprite of exhaust) {
         sprite.scale.set(glow, glow * .61, 1);
-        sprite.material.opacity = .56 + flight.speed * .003;
+        sprite.material.opacity = .30 + flight.speed * .002;
       }
     },
   };
