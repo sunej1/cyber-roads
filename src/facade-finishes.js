@@ -7,14 +7,14 @@ import { addWindowInteriors } from './window-interiors.js';
 export const finishes = [
   { base:'#68665d', frame:'#a19b85', pane:'#313e40', lamps:['#ffc074','#ffe3aa','#d3ccaa'],
     grid:[5,6], repeat:[33,33], opening:[.32,.14,.72], activity:.32, surface:0, metalness:.07, deep:true },
-  { base:'#143445', frame:'#5297a5', pane:'#286476', lamps:['#66e7ff','#9af2ef','#c1defe'],
-    grid:[10,5], repeat:[32,26], opening:[.043,.065,.84], activity:.27, surface:1, metalness:.53 },
+  { base:'#1a303d', frame:'#627e89', pane:'#2b4e5d', lamps:['#8ad6dd','#9bacba','#c9d8db'],
+    grid:[6,6], repeat:[34,32], opening:[.092,.35,.36], activity:.34, surface:1, metalness:.53 },
   { base:'#724438', frame:'#bb7862', pane:'#42363e', lamps:['#ff7e8d','#ffb972','#ffe6b6'],
     grid:[6,8], repeat:[34,29], opening:[.19,.25,.58], activity:.53, surface:2, metalness:.12, deep:true },
   { base:'#404c44', frame:'#86724c', pane:'#384b42', lamps:['#ffb951','#e5d08d','#f2ae80'],
     grid:[4,4], repeat:[33,25], opening:[.083,.28,.29], activity:.46, surface:2, metalness:.31 },
-  { base:'#948573', frame:'#cdbb91', pane:'#44353d', lamps:['#ffcc7b','#f8ebc3','#e8a88d'],
-    grid:[8,6], repeat:[43,34], opening:[.23,.10,.77], activity:.30, surface:0, metalness:.18, deep:true },
+  { base:'#67564c', frame:'#775f58', pane:'#47394c', lamps:['#ffcc86','#efdac2','#d9a78d'],
+    grid:[5,3], repeat:[32,29], opening:[.072,.13,.75], activity:.30, surface:1, metalness:.37 },
   { base:'#204c42', frame:'#668563', pane:'#3e6957', lamps:['#b6ef91','#88e4ba','#e1ebb0'],
     grid:[6,6], repeat:[34,31], opening:[.075,.16,.68], activity:.42, surface:1, metalness:.31 },
 ];
@@ -25,7 +25,7 @@ const { euclideanModulo: wrap } = THREE.MathUtils;
 export function hasWindow(style, col, row) {
   if (style === 0) return wrap(col,5) !== 0 && wrap(row,6) !== 5;
   if (style === 3) return wrap(row,4) === 1;
-  if (style === 4) return wrap(col,4) !== 0;
+  if (style === 1) return wrap(row,3) !== 2;
   return true;
 }
 
@@ -97,13 +97,10 @@ function cladding(ctx, style, channel) {
       }
       break;
     case 4:
-      for (const pier of [0,4]) {
-        rect(pier*w,0,w,size,'#554641','#696969');
-        for (let flute=0; flute<5; flute++) {
-          rect((pier+.05+flute*.2)*w,0,w*.115,size,flute%2 ? '#b0956b' : '#c8ad81','#c5c5c5');
-        }
+      for (let row=0; row<rows; row++) {
+        rect(0,(row+.86)*h,size,h*.083,'#a89372','#a3a3a3');
+        rect(0,(row+.97)*h,size,h*.028,'#383037','#626262');
       }
-      for (let row=0; row<rows; row++) rect(0,(row+.89)*h,size,h*.063,'#caaa80','#b6b6b6');
       break;
     case 5:
       for (let row=0; row<rows; row++) {

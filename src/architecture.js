@@ -4,6 +4,9 @@ import { addScreens, campaignFor } from './ads.js';
 import { batch, beam, box, line, neon } from './scene-parts.js';
 import { facadeMaterial, finishes } from './facade-finishes.js';
 import { facadeClusters } from './streetscape.js';
+import { towerMasses } from './megabuildings.js';
+import { drawSurface, surfaceMap } from './surface-materials.js';
+import { addPlants } from './vegetation.js';
 
 const { Mesh, MeshStandardMaterial } = THREE;
 export const facadeColors = finishes.map(({ base }) => base);
@@ -40,48 +43,133 @@ function signItem(x,y,z,w,h,yaw,b) {
 }
 
 const roof = new MeshStandardMaterial({ color: '#3c4140', roughness: .77, metalness: .23, side: THREE.DoubleSide });
-function addFacades(scene, slices) {
-  const roofs = [];
-  const detailFaces = [];
-  finishes.forEach(({ grid:[cols,rows], repeat:[width,rise] }, style) => {
-    const vertices = [], uv = [];
-    for (const { x, z, w, d, base, h, topW, topD, topX, topZ, bevel, sides, phase, twist, windowOffset, building } of slices[style]) {
+const panelMap = surfaceMap(512,ctx => {
+  ctx.fillStyle='#e0dbd1';
+  ctx.fillRect(0,0,512,512);
+  ctx.save();
+  ctx.globalAlpha=.36;
+  drawSurface(ctx,0);
+  ctx.restore();
+  const random=randomFor(7785);
+  for (let y=0; y<512; y+=128) {
+    for (let col=-1; col<4; col++) {
+      const x=col*161+(y%256 ? 77 : 0);
+      const shade=Math.floor(165+random()*76);
+      ctx.fillStyle=`rgb(${shade} ${shade} ${shade} / .24)`;
+      ctx.fillRect(x,y,160,126);
+      ctx.fillStyle='#383b36a1';
+      ctx.fillRect(x,y,1.8,128);
+      ctx.fillRect(x,y,161,2.4);
+      const runoff=ctx.createLinearGradient(0,y,0,y+112);
+      runoff.addColorStop(0,'#322c2459');
+      runoff.addColorStop(1,'#322c2400');
+      ctx.fillStyle=runoff;
+      ctx.fillRect(x+random()*18,y,2+random()*8,112);
+      ctx.fillStyle='#423f3a88';
+      ctx.fillRect(x+8,y+9,3,3);
+      ctx.fillRect(x+152,y+9,3,3);
+    }
+  }
+});
+const hull = new MeshStandardMaterial({ map:panelMap, vertexColors:true, roughness:.72, metalness:.19 });
+const enamel = new MeshStandardMaterial({ vertexColors:true, roughness:.35, metalness:.29 });
+
+function addMesh(scene, material, positions, uv, colors) {
+  if (!positions.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+  if (uv) geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  if (colors) geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+  geometry.computeVertexNormals();
+  scene.add(new Mesh(geometry,material));
+}
+
+function massForm(building,from,to,w,d,options={},windowOffset=0) {
+  const { topW=w,topD=d,lean=0,shift=0,slide=0,bevel=0,sides=0,phase=0,twist=0,skin,cover=false } = options;
+  const x=building.x+shift*building.w,z=building.z+slide*building.d;
+  return {x,z,w:w*building.w,d:d*building.d,base:from*building.h,h:(to-from)*building.h,
+    topW:topW*building.w,topD:topD*building.d,topX:x+lean*building.w,topZ:z,
+    bevel,sides,phase,twist,skin,cover,building,windowOffset};
+}
+
+function addFacades(scene, slices, cladding, coated = []) {
+  const roofs = [], detailFaces = [];
+  function surfaces(forms, material, style, solid=false) {
+    const vertices=[], uv=[], colors=[];
+    const {grid:[cols,rows],repeat:[width,rise]}=finishes[style];
+    const color=new THREE.Color();
+    for (const {x,z,w,d,base,h,topW,topD,topX,topZ,bevel,sides,phase,twist,skin,cover,windowOffset,building} of forms) {
       const lower = profile(x,z,w,d,bevel,sides,phase).map(([x,z])=>turn(x,z,building));
       const upper = profile(topX,topZ,topW,topD,bevel,sides,phase+twist).map(([x,z])=>turn(x,z,building));
       const [roofX,roofZ] = turn(topX,topZ,building);
-      const low = base, top = base + h;
-      const v = h / rise, v0 = windowOffset * 3.3 + base / rise;
-      for (let i = 0; i < lower.length; i++) {
-        const j = (i + 1) % lower.length;
-        const [ax, az] = lower[i], [bx, bz] = lower[j], [cx, cz] = upper[j], [dx, dz] = upper[i];
-        const u = Math.hypot(bx - ax, bz - az) / width;
-        const u0 = windowOffset + i * .29;
+      const [footX,footZ] = turn(x,z,building);
+      const [roofA,roofB]=upper[0], [footA,footB]=lower[0];
+      const low=base, top=base+h;
+      const v=h/(solid ? 21 : rise), v0=windowOffset*3.3 + base/rise;
+      if (solid) color.set(skin);
+      for (let i=0; i<lower.length; i++) {
+        const j=(i+1)%lower.length;
+        const [ax,az]=lower[i],[bx,bz]=lower[j],[cx,cz]=upper[j],[dx,dz]=upper[i];
+        const cap=i>0 && j!==0;
+        const span=Math.hypot(bx-ax,bz-az);
+        const u=span/(solid ? 22 : width),u0=windowOffset+i*.29;
         vertices.push(ax,low,az, bx,low,bz, dx,top,dz, bx,low,bz, cx,top,cz, dx,top,dz);
         uv.push(u0,v0, u0+u,v0, u0,v0+v, u0+u,v0, u0+u,v0+v, u0,v0+v);
-        roofs.push(roofX,top,roofZ, dx,top,dz, cx,top,cz);
-        const facing=(az-bz)*Math.sin(building.yaw??0)+(bx-ax)*Math.cos(building.yaw??0);
-        if (low<169) detailFaces.push({
-          ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,style,index:i,
-          storefront:building.frontage ? building.retail && facing>Math.hypot(bx-ax,bz-az)*.67 : undefined,
-          b:{ h:building.h,type:building.type,seed:(Math.imul(Math.round(building.x*23),0x45d9f3b)
-            ^ Math.imul(Math.round(building.z*31),0x119de1f3)) >>> 0 },
-        });
+        if (solid) {
+          let count=6;
+          if (cap) {
+            vertices.push(roofA,top,roofB, dx,top,dz, cx,top,cz);
+            uv.push((roofA-roofX)/16+.5,(roofB-roofZ)/16+.5,(dx-roofX)/16+.5,(dz-roofZ)/16+.5,(cx-roofX)/16+.5,(cz-roofZ)/16+.5);
+            count+=3;
+            if (base > 0) {
+              vertices.push(footA,low,footB, bx,low,bz, ax,low,az);
+              uv.push((footA-footX)/16+.5,(footB-footZ)/16+.5,(bx-footX)/16+.5,(bz-footZ)/16+.5,(ax-footX)/16+.5,(az-footZ)/16+.5);
+              count+=3;
+            }
+          }
+          for (let n=0; n<count; n++) colors.push(color.r,color.g,color.b);
+          continue;
+        }
+        if (cap) {
+          roofs.push(roofA,top,roofB, dx,top,dz, cx,top,cz);
+          if (cover && base > 0) roofs.push(footA,low,footB, bx,low,bz, ax,low,az);
+        }
+        if (low<169 && span>=4.5) {
+          const facing=(az-bz)*Math.sin(building.yaw??0)+(bx-ax)*Math.cos(building.yaw??0);
+          detailFaces.push({
+            ax,az,bx,bz,cx,cz,dx,dz,low,top,u0,v0,u,v,cols,rows,style,index:i,
+            storefront:building.frontage ? building.retail && facing>span*.67 : undefined,
+            b:{h:building.h,type:building.type,seed:(Math.imul(Math.round(building.x*23),0x45d9f3b)
+              ^ Math.imul(Math.round(building.z*31),0x119de1f3)) >>> 0},
+          });
+        }
       }
     }
-    if (!vertices.length) return;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    geometry.computeVertexNormals();
-    scene.add(new Mesh(geometry, facadeMaterial(style)));
-  });
-  if (roofs.length) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(roofs, 3));
-    geometry.computeVertexNormals();
-    scene.add(new Mesh(geometry, roof));
+    addMesh(scene,material,vertices,uv,solid ? colors : null);
   }
-  return facadeClusters(detailFaces);
+  slices?.forEach((forms,style)=>{
+    if (forms.length) surfaces(forms,facadeMaterial(style),style);
+  });
+  if (cladding.length) surfaces(cladding,slices ? hull : enamel,0,true);
+  if (coated.length) surfaces(coated,enamel,0,true);
+  addMesh(scene,roof,roofs);
+  if (slices) return facadeClusters(detailFaces);
+}
+
+export function distantMegabuildings(scene, buildings) {
+  const cladding=[], conventional=[];
+  for (const b of buildings) {
+    const masses=towerMasses(b);
+    if (!masses) { conventional.push(b); continue; }
+    for (const {from,to,w,d,...shape} of masses) {
+      if (to-from < .034) continue;
+      const bevel=shape.bevel>=.12 ? shape.bevel : 0;
+      const sides=shape.sides ? Math.min(shape.sides,8) : 0;
+      cladding.push(massForm(b,from,to,w,d,{...shape,bevel,sides,skin:shape.skin??facadeColors[b.style]}));
+    }
+  }
+  addFacades(scene,null,cladding);
+  return conventional;
 }
 
 export const trim = new MeshStandardMaterial({ color: '#484847', roughness: .81, metalness: .26 });
@@ -90,7 +178,7 @@ const lightColors = ['#ffa35e', '#56dcff', '#ff6090', '#f9a735', '#ffdb84', '#a6
 const towerNeon = lightColors.map(color => neon(color, 2));
 const beacon = neon('#ff5f37', 2.6);
 
-const drum = new THREE.CylinderGeometry(.5,.5,1,18);
+const drum = new THREE.CylinderGeometry(.5,.5,1,10);
 const dome = new THREE.SphereGeometry(.5,16,8);
 const wedge = new THREE.BoxGeometry();
 for (let i=0;i<wedge.attributes.position.count;i++) {
@@ -102,214 +190,137 @@ const panels = new MeshStandardMaterial({ roughness: .68, metalness: .32 });
 const glass = new MeshStandardMaterial({ color: '#2b4148', roughness: .29, metalness: .6, emissive: '#789ba0', emissiveIntensity: .16 });
 const pipeMetal = new MeshStandardMaterial({ roughness: .64, metalness: .44 });
 
-function facadeStructure(form, solids, lights) {
-  const {x,z,w,d,topX,topZ,topW,topD,base,h,bevel,sides,building:b} = form;
-  const minimumHeight=b.style===3 ? 12 : b.style===5 ? 21 : 32;
-  if (sides || h < minimumHeight || b.type === 11 || b.type === 12) return;
-  const lower = profile(x,z,w,d,bevel);
-  const upper = profile(topX,topZ,topW,topD,bevel);
-  // Ordinary buildings get geometry on two sides. Their cladding carries the style around the back.
-  const faceCount=b.h >= 106 || b.sign ? 4 : 2;
-  const step=bevel ? 2 : 1;
-  for (let i=0; i<faceCount*step; i+=step) {
-    const j=(i+1)%lower.length;
-    const [ax,az]=lower[i], [bx,bz]=lower[j], [cx,cz]=upper[j], [dx,dz]=upper[i];
-    const span=Math.hypot(bx-ax,bz-az);
-    if (span < 15) continue;
-    const across=new THREE.Vector3((bx-ax)/span,0,(bz-az)/span);
-    const rise=new THREE.Vector3((dx+cx-ax-bx)*.5,h,(dz+cz-az-bz)*.5);
-    rise.addScaledVector(across,-rise.dot(across)).normalize();
-    const outward=new THREE.Vector3().crossVectors(across,rise);
-    const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across,rise,outward));
-    const part=(items, along, bottom, top, width, depth, color, offset=.2)=>{
-      const y=(bottom+top)*.5;
-      const px=THREE.MathUtils.lerp(ax+(bx-ax)*along,dx+(cx-dx)*along,y)+outward.x*offset;
-      const pz=THREE.MathUtils.lerp(az+(bz-az)*along,dz+(cz-dz)*along,y)+outward.z*offset;
-      items.push([px,base+h*y+outward.y*offset,pz,width,h*(top-bottom)/rise.y,depth,rotation.clone(),color]);
-    };
-    switch (b.style) {
-      case 0:
-        for (const along of [.12,.88]) {
-          part(solids,along,.07,.97,Math.min(span*.087,5.2),1.6,'#9d9783');
-          part(lights,along,.79,.94,.27,.16,undefined,1.3);
+function towerSystems(b, solids, pipes, foliage, lights) {
+  const {x,z,w,h,d,style}=b;
+  if (h < 42 && style !== 3) return;
+  const flip=b.type%2 ? -1 : 1;
+  const part=(items,u,v,p,width,height,depth,color)=>{
+    items.push([x+w*u,h*v,z+d*p,w*width,h*height,d*depth,0,color]);
+  };
+  const link=(items,a,c,width,color)=>{
+    beam(items,x+w*a[0],h*a[1],z+d*a[2],x+w*c[0],h*c[1],z+d*c[2],width,width,color);
+  };
+  switch (style) {
+    case 0:
+      for (const side of [-1,1]) {
+        const face=side*.364;
+        link(pipes,[-flip*.36,.21,face],[-flip*.36,.92,face],Math.min(3.2,w*.055),'#a78d66');
+        link(pipes,[-flip*.36,.26,face],[flip*.29,.26,face],Math.min(2.1,w*.044),'#736754');
+        for (let row=0;row<(h>=74 ? 7 : 4);row++) {
+          if ((row+b.type+(side+1))%5===1) continue;
+          const center=-flip*(row%2 ? .15 : .21),level=.28+row*(h>=74 ? .090 : .14);
+          const casing=['#b4a07e','#657e78','#9e634e','#8b8f76'][row%4];
+          part(solids,center,level,side*(.36+(row%2)*.02),.24,.060,.23,casing);
+          part(solids,center+.03,level+.006,side*(.477+(row%2)*.008),.14,.021,.014,'#292e2e');
         }
-        break;
-      case 1:
-        part(solids,.77,.08,.97,Math.min(span*.086,3.8),.85,'#346473');
-        part(lights,.77,.19,.83,.34,.18,undefined,.68);
-        if (h > 85) part(lights,.50,.948,.953,span*.63,.18,undefined,.62);
-        break;
-      case 2:
-        if (b.type === 14) break;
-        for (const [along,y] of [[.27,.31],[.70,.68]]) {
-          part(solids,along,y,y+.018,span*.34,1.65,'#a75e55',.48);
-          part(solids,along,y+.021,y+.049,span*.31,.23,'#6d827f',1.28);
-          part(lights,along,y-.004,y,span*.25,.12,undefined,1.21);
+      }
+      break;
+    case 1:
+      for (const side of [-1,1]) {
+        link(solids,[-flip*.31,.26,side*.39],[flip*.23,.70,side*.37],Math.min(w*.083,5.2),'#4b5962');
+        link(solids,[flip*.31,.25,side*.39],[-flip*.17,.50,side*.38],Math.min(w*.048,3.0),'#7d8990');
+        part(solids,0,.785,side*.315,.26,.051,.30,'#26353e');
+        part(lights,0,.797,side*.47,.13,.004,.012);
+      }
+      break;
+    case 2:
+      for (const side of [-1,1]) {
+        for (const [i,y] of (h>=74 ? [.26,.52,.78] : [.35,.71]).entries()) {
+          const u=(i%2 ? -flip : flip)*.17;
+          const surround=['#b64b6b','#3caba5','#d89d57'][i];
+          part(solids,u,y,side*.409,.29,.075,.15,surround);
+          part(solids,u,y+.007,side*.485,.22,.036,.016,'#32303c');
+          part(lights,u,y+.025,side*.496,.19,.006,.007);
         }
-        break;
-      case 3:
-        part(solids,.74,.29,.91,Math.min(span*.20,7.1),1.25,'#897e58');
-        for (const along of [.69,.74,.79]) part(solids,along,.36,.88,.43,.31,'#b7ab82',1);
-        part(lights,.74,.42,.61,.28,.14,undefined,1.23);
-        break;
-      case 4:
-        for (const [along,top] of [[.19,.83],[.5,.97],[.81,.83]]) {
-          part(solids,along,.03,top,Math.min(span*.089,4.9),1.28,'#baa58a');
-          if (along === .5) part(lights,along,top-.22,top-.027,.25,.18,undefined,1.13);
+      }
+      link(solids,[flip*.39,.15,.29],[flip*.19,.55,.286],Math.min(w*.07,3.8),'#9b7661');
+      break;
+    case 3: {
+      const pipe=Math.min(w*.11,d*.13,h*.10);
+      for (const side of [-1,1]) {
+        const u=side*.355;
+        link(pipes,[u,.21,.344],[u,.78,.344],pipe,side===flip ? '#a47555' : '#74938e');
+        link(pipes,[u,.78,.344],[u,.78,-.19],pipe,side===flip ? '#a47555' : '#74938e');
+        for (const y of (h>=42 ? [.36,.61,.78] : [.78])) {
+          part(pipes,u,y,.344,pipe/w*1.28,.044,pipe/d*1.28,'#504e44');
         }
-        break;
-      case 5:
-        for (const y of [.32,.68]) {
-          part(solids,.5,y,y+.034,span*.74,1.68,'#658570',.45);
-          part(solids,.5,y+.032,y+.065,span*.72,.27,'#94a379',1.14);
-          if (h > 23) part(lights,.5,y+.010,y+.016,span*.67,.17,undefined,1.32);
-        }
-        break;
+      }
+      link(pipes,[-.355,.49,.344],[.355,.49,.344],pipe*.75,'#a19762');
+      part(solids,0,.42,.391,.43,.14,.09,'#5d6356');
+      for (const u of [-.147,-.073,0,.073,.147]) part(solids,u,.42,.441,.04,.11,.021,'#242c2b');
+      break;
     }
+    case 4:
+      for (const side of [-1,1]) {
+        link(solids,[side*.43,.12,0],[side*.29,.54,0],Math.min(w*.047,2.8),'#b29b6c');
+        link(solids,[side*.29,.54,0],[side*.40,.78,0],Math.min(w*.045,2.6),'#b29b6c');
+      }
+      for (const y of (h>=74 ? [.466,.846] : [.676])) {
+        for (const [u,p] of [[-.19,.13],[.16,.16],[-.08,-.19]]) {
+          part(foliage,u,y,p,.15,.046,.13,'#647f55');
+        }
+      }
+      break;
+    case 5:
+      link(pipes,[-flip*.32,.13,-.32],[-flip*.32,.91,-.26],Math.min(w*.074,3.2),'#829785');
+      for (const [i,y] of (h>=74 ? [.38,.74] : [.59]).entries()) {
+        const p=i%2 ? -.088 : .076, u=flip*(i%2 ? .138 : .09);
+        for (const side of [-1,1]) {
+          link(solids,[-flip*.28,y-.18,p+side*.22],[u+flip*.24,y-.083,p+side*.22],Math.min(w*.073,3.4),'#78816a');
+          part(foliage,u-flip*.13,y+.131,p+side*.14,.13,.05,.13,side===1 ? '#7b9360' : '#495f3e');
+        }
+      }
+      break;
   }
 }
 
+function signMount(levels, y, face, lateral=false) {
+  let mount;
+  for (const form of levels) {
+    const spanScale=form.sides ? .64 : 1-2*form.bevel;
+    const across=lateral ? form.d : form.w;
+    const lot=lateral ? form.building.d : form.building.w;
+    if (y < form.base || y > form.base+form.h || across*spanScale < lot*.24) continue;
+    const rise=(y-form.base)/form.h;
+    const w=THREE.MathUtils.lerp(form.w,form.topW,rise), d=THREE.MathUtils.lerp(form.d,form.topD,rise);
+    const x=THREE.MathUtils.lerp(form.x,form.topX,rise)+(lateral ? face*w*.5 : 0);
+    const z=form.z+(lateral ? 0 : face*d*.5);
+    const edge=face*(lateral ? x : z);
+    if (mount && edge<=mount.edge) continue;
+    mount={x,z,edge,span:(lateral ? d : w)*spanScale};
+  }
+  return mount;
+}
+
 export function towers(scene, buildings, local = false) {
-  const slices = finishes.map(() => []);
+  const slices = finishes.map(() => []), cladding = [], coated = [];
   const caps = [], ribs = [], ledges = [], beacons = [], vents = [], glazing = [], rounds = [], domes = [], slopeRoofs = [];
-  const screens = new Map(), plaques = new Map();
+  const screens = new Map(), plaques = new Map(), shrubs = [];
   const lights = lightColors.map(() => []);
-  const parts = [caps,ribs,ledges,beacons,vents,glazing,rounds,domes,slopeRoofs,...lights];
+  const parts = [caps,ribs,ledges,beacons,vents,glazing,rounds,domes,slopeRoofs,shrubs,...lights];
   const random = randomFor(13082);
   buildings.forEach((b, index) => {
     const lit = lights[b.style];
     const limits=parts.map(items=>items.length);
     const levels = [];
     const windowOffset = random()*13;
-    const segment = (from, to, w, d, options = {}) => {
-      const { topW=w, topD=d, lean=0, shift=0, bevel=0, sides=0, phase=0, twist=0 }=options;
-      const x = b.x + shift * b.w, z = b.z;
-      const form = { x, z, w: w * b.w, d: d * b.d, base: from * b.h, h: (to - from) * b.h,
-        topW: topW * b.w, topD: topD * b.d, topX: x + lean * b.w, topZ: z,
-        bevel, sides, phase, twist, building: b, windowOffset };
-      slices[b.style].push(form);
+    const segment = (from,to,w,d,options) => {
+      const form=massForm(b,from,to,w,d,options,windowOffset);
+      const solids=b.style===2 || b.style===4 ? coated : cladding;
+      (form.skin ? solids : slices[b.style]).push(form);
       levels.push(form);
       return form;
     };
-    const band = (y, w, d, x = b.x, on = true) => {
-      ledges.push([x, y, b.z, w + 1.1, 1.7, d + 1.1]);
-      if (!on) return;
-      for (const side of [-1, 1]) {
-        lit.push([x, y + .72, b.z + side * (d / 2 + .67), w, .32, .41]);
-        lit.push([x + side * (w / 2 + .68), y + .72, b.z, .43, .32, d]);
+    const masses=towerMasses(b);
+    if (masses) {
+      for (const {from,to,w,d,...shape} of masses) {
+        segment(from,to,w,d,{...shape,cover:true});
       }
-    };
-    let top;
-    switch (b.type) {
-      case 1:
-        segment(0,.28,1,1);
-        top = segment(.28,1,.83,.85);
-        band(b.h * .29, b.w * .94, b.d * .92);
-        break;
-      case 2:
-        segment(0,.31,1,1);
-        segment(.31,.70,.84,.91);
-        top = segment(.70,1,.63,.74);
-        caps.push([b.x, b.h * .695, b.z, b.w * .87, .9, b.d * .94]);
-        break;
-      case 3:
-        segment(0,.24,1,1);
-        top = segment(.24,1,.78,.82,{ shift: .07 });
-        ribs.push([b.x - b.w * .39, b.h * .41, b.z, 2.1, b.h * .34, b.d * .61]);
-        break;
-      case 4:
-        segment(0,.16,1,1,{ bevel: .25 });
-        top = segment(.16,.92,.84,.91,{ bevel: .34, topW: .77, topD: .84 });
-        segment(.92,1,.78,.85,{ bevel: .34, topW: .58, topD: .63 });
-        for (const y of [.21,.38,.59,.78,.90]) {
-          const ring = profile(b.x,b.z,b.w * (.86 - y * .075),b.d * (.94 - y * .082),.34);
-          for (let side = 0; side < ring.length; side++) {
-            const a = ring[side], c = ring[(side + 1) % ring.length];
-            lit.push([(a[0] + c[0]) / 2, b.h * y, (a[1] + c[1]) / 2, .55,.48,
-              Math.hypot(a[0] - c[0],a[1] - c[1]),Math.atan2(c[0] - a[0],c[1] - a[1])]);
-          }
-        }
-        break;
-      case 5: {
-        const lean = index % 2 ? -.14 : .14;
-        segment(0,.24,1,1,{ bevel: .08 });
-        top = segment(.24,1,.96,.89,{ topW: .53, topD: .63, lean, bevel: .11 });
-        for (const side of [-1,1]) for (const face of [-1,1]) {
-          const x = b.x + side * b.w * .31, z = b.z + face * b.d * .406;
-          ribs.push([x,b.h*.49,z,2,b.h*.49,1.25]);
-          lit.push([x,b.h*.56,z + face * .7,.43,b.h*.36,.38]);
-        }
-        break;
-      }
-      case 6:
-        segment(0,.17,1,1);
-        segment(.17,.24,.70,.70);
-        top = segment(.24,.92,.96,.91,{ bevel: .06 });
-        segment(.92,1,.64,.53);
-        for (const y of [.25,.54,.74,.915]) band(b.h * y,b.w * .96,b.d * .91,b.x,y !== .54);
-        for (const side of [-1,1]) ribs.push([b.x+side*b.w*.405,b.h*.6,b.z,3.4,b.h*.63,b.d*.94]);
-        break;
-      case 7:
-        segment(0,.25,1,1,{ bevel: .06 });
-        segment(.25,.46,.91,.83,{ shift: -.025 });
-        segment(.46,.68,.78,.70,{ shift: .05 });
-        top = segment(.68,1,.62,.57,{ shift: .09, topW: .58, topD: .52 });
-        for (const [y,width,depth,shift] of [[.25,.99,.99,0],[.46,.92,.84,-.025],[.68,.78,.71,.05]]) {
-          band(b.h * y,b.w * width,b.d * depth,b.x+b.w*shift);
-          for (const side of [-1,1]) caps.push([b.x+b.w*shift+side*b.w*width*.26,b.h*y+1.25,b.z+b.d*depth*.44,
-            b.w*.22,2.25,b.d*.10]);
-        }
-        break;
-      case 8: {
-        segment(0,.12,1,1,{ bevel: .13 });
-        segment(.12,.52,.78,.92,{ sides: 12, topW:.90, topD:.82, twist:.20 });
-        segment(.52,.91,.90,.82,{ sides: 12, topW:.59, topD:.68, phase:.20, twist:.20 });
-        top=segment(.91,1,.59,.68,{ sides:12, topW:.52, topD:.55, phase:.40 });
-        for (const face of [-1,1]) {
-          const z = b.z + face*b.d*.43;
-          for (const side of [-1,1]) {
-            beam(ribs,b.x+side*b.w*.43,b.h*.11,z,b.x+side*b.w*.21,b.h*.90,z,2.4,2.7);
-            beam(vents,b.x+side*b.w*.36,b.h*.24,z,b.x-side*b.w*.31,b.h*.58,z,1.7,1.8,'#888c80');
-            beam(vents,b.x+side*b.w*.37,b.h*.54,z,b.x-side*b.w*.29,b.h*.76,z,1.5,1.4,'#a08e6b');
-          }
-        }
-        rounds.push([b.x,b.h*.93,b.z,b.w*.65,1.65,b.d*.70,0,'#56666a']);
-        break;
-      }
-      case 9: {
-        segment(0,.13,1,1,{ bevel:.13 });
-        for (const side of [-1,1]) {
-          segment(.13,.65,.43,.86,{ shift: side*.273,bevel:.12,topW:.37,topD:.74 });
-          top=segment(.65,side === 1 ? 1 : .94,.37,.74,{ shift:side*.273,topW:.32,topD:.61,lean:-side*.035,bevel:.17 });
-          for (const z of [b.z-b.d*.34,b.z+b.d*.34]) beam(ribs,b.x+side*b.w*.44,b.h*.23,z,
-            b.x+side*b.w*.40,b.h*.92,z,2.2,2.1);
-        }
-        for (const level of [.38,.69]) {
-          const y=b.h*level;
-          caps.push([b.x,y-2.2,b.z,b.w*.65,1.7,b.d*.37]);
-          glazing.push([b.x,y+.5,b.z,b.w*.65,4.5,b.d*.36]);
-          for (const side of [-1,1]) lit.push([b.x,y+2.45,b.z+side*b.d*.197,b.w*.61,.47,.44]);
-          for (const side of [-1,1]) beam(vents,b.x-b.w*.34,y-2.0,b.z+side*b.d*.19,
-            b.x+b.w*.34,y+2.5,b.z+side*b.d*.19,1.10,1.10,'#827c64');
-        }
-        break;
-      }
-      case 10: {
-        top=segment(0,.34,.97,.89,{ bevel:.13 });
-        slopeRoofs.push([b.x,b.h*.385,b.z,b.w*.86,b.h*.12,b.d*.86,0,'#777464']);
-        for (const i of [-1,0,1]) {
-          const x=b.x+i*b.w*.23,z=b.z-b.d*.23,y=b.h*(1-.13*Math.abs(i));
-          rounds.push([x,y*.58,z,b.w*.082,y*.83,b.w*.082,0,'#695c4c']);
-          for (const band of [.55,.77,.945]) rounds.push([x,y*band,z,b.w*.092,y*.023,b.w*.092,0,band===.945?'#a87559':'#4f5351']);
-          beacons.push([x,y,z,.97,.92,.97]);
-          beam(ribs,x,b.h*.49,z,x,b.h*.38,b.z+b.d*.40,1.40,1.55);
-          rounds.push([x,b.h*.23,b.z+b.d*.29,b.w*.137,b.h*.21,b.w*.137,0,'#7d7062']);
-        }
-        break;
-      }
+      towerSystems(b,vents,rounds,shrubs,lit);
+    } else switch (b.type) {
       case 11: {
         segment(0,.30,.91,.86,{bevel:.11});
-        top=segment(.30,.58,.53,.57,{bevel:.13,shift:-.15});
+        segment(.30,.58,.53,.57,{bevel:.13,shift:-.15});
         for (const side of [-1,1]) {
           const x=b.x+side*b.w*.43;
           ribs.push([x,b.h*.51,b.z,3.35,b.h*.91,5.7]);
@@ -324,7 +335,7 @@ export function towers(scene, buildings, local = false) {
         break;
       }
       case 12: {
-        top=segment(0,.17,.63,.60,{bevel:.22});
+        segment(0,.17,.63,.60,{bevel:.22});
         const w=b.w*.76,d=b.d*.76;
         for (const i of [-1,1]) for (const j of [-1,1]) {
           const x=b.x+i*w*.37,z=b.z+j*d*.35;
@@ -340,13 +351,13 @@ export function towers(scene, buildings, local = false) {
         break;
       }
       case 13:
-        top=segment(0,.93,.98,.98,{bevel:.10});
+        segment(0,.93,.98,.98,{bevel:.10});
         slopeRoofs.push([b.x,b.h*.955,b.z,b.w*.98,b.h*.10,b.d*.95,0,'#6f6c63']);
         for (const side of [-1,1]) line(ledges,b.x-b.w*.47,5.85,b.z+side*b.d*.51,b.x+b.w*.47,b.z+side*b.d*.51,2.9,.81);
         break;
       case 14:
         segment(0,.16,1,1,{bevel:.06});
-        top=segment(.16,1,.89,.81,{bevel:.06});
+        segment(.16,1,.89,.81,{bevel:.06});
         for (let y=Math.max(9,b.h*.18);y<b.h-4.0;y+=5.25) {
           for (const side of [-1,1]) {
             const z=b.z+side*b.d*.416;
@@ -362,7 +373,7 @@ export function towers(scene, buildings, local = false) {
         ribs.push([b.x+b.w*.415,b.h*.55,b.z-b.d*.32,1.3,b.h*.9,2.0]);
         break;
       case 15:
-        top=segment(0,.79,1,1,{bevel:.05});
+        segment(0,.79,1,1,{bevel:.05});
         for (let i=-1;i<=1;i++) {
           const x=b.x+i*b.w/3;
           slopeRoofs.push([x,b.h*.895,b.z,b.w*.337,b.h*.21,b.d,0,i===0?'#596064':'#696654']);
@@ -370,62 +381,12 @@ export function towers(scene, buildings, local = false) {
         }
         break;
       case 16:
-        top=segment(0,.74,1,1,{bevel:.025});
+        segment(0,.74,1,1,{bevel:.025});
         for (const side of [-1,1]) slopeRoofs.push([b.x+side*b.w*.25,b.h*.865,b.z,b.w*.53,b.h*.25,b.d*1.08,side>0?Math.PI:0,'#635d53']);
         vents.push([b.x+b.w*.12,b.h*.86,b.z+b.d*.20,1.15,3.4,1.60,0,'#656354']);
         break;
       default:
-        if (b.h > 48 && b.style === 4) {
-          segment(0,.16,1,1);
-          segment(.16,.81,.87,.86,{bevel:.06});
-          segment(.81,.94,.71,.68,{bevel:.08});
-          top=segment(.94,1,.43,.44,{bevel:.12});
-        } else if (b.h > 48 && b.style === 5) {
-          segment(0,.15,1,1,{bevel:.07});
-          segment(.15,.85,.88,.91,{bevel:.12});
-          top=segment(.85,1,.82,.83,{bevel:.19,topW:.67,topD:.63});
-          band(b.h*.85,b.w*.89,b.d*.92);
-        } else {
-          top = segment(0,1,1,1,{ bevel: b.h > 72 && index % 4 === 0 ? .07 : 0 });
-        }
-    }
-    const main=levels.reduce((largest,level)=>level.h*level.w > largest.h*largest.w ? level : largest);
-    facadeStructure(main,vents,lit);
-    const zFront = top.z + top.d / 2 + .55;
-    const litVertical = b.sign || (b.h > 62 && index % 4 === 1);
-    if (litVertical && b.type < 4) {
-      for (const side of [-1, 1]) {
-        const x = top.x + side * top.w * .48;
-        lit.push([x, top.base + top.h * .58, zFront, .56, top.h * .77, .46]);
-        ribs.push([x, top.base + top.h / 2, zFront - 1.2, 2.1, top.h, 2.6]);
-      }
-    }
-    if (b.h > 70 && (b.type === 0 || b.type === 3)) {
-      for (let y = .17; y < .85; y += .16) {
-        if (b.h*y > top.base + 4) band(b.h*y,top.w,top.d,top.x,index % 4 === 0);
-      }
-    }
-    const machineryRoof = b.type < 10 || b.type===14;
-    if (machineryRoof) {
-      if (b.h>116 || index%7===1) {
-        const mast=b.landmark?13+random()*10:3+random()*10;
-        const x=top.topX+top.topW*.13;
-        caps.push([x,b.h+mast/2,b.z,.64,mast,.64]);
-        beacons.push([x,b.h+mast,b.z,1.0,.69,1.0]);
-      }
-      const tx=top.topX,tz=top.topZ;
-      vents.push([tx-top.topW*.11,b.h+1.20,tz,top.topW*.27,2.4,top.topD*.29,0,'#747d76']);
-      rounds.push([tx+top.topW*.18,b.h+1.10,tz-top.topD*.13,2.45,2.2,2.45,0,'#6e7975']);
-      for (let k=-1;k<=1;k++) {
-        vents.push([tx-top.topW*.11,b.h+2.46,tz+k*top.topD*.063,top.topW*.248,.23,.54,0,'#343935']);
-      }
-      if (b.h>70 && (b.type===2 || b.type===3 || b.type===5 || b.type===8)) {
-        for (const face of [-1,1]) for (const ratio of [.25,.46,.67]) {
-          const y=top.base+top.h*ratio,z=top.z+face*top.d*.48;
-          caps.push([top.x,y,z,top.w*.76,.66,2.15]);
-          for (let i=-1;i<=1;i++) ledges.push([top.x+i*top.w*.19,y+.22,z+face*1.05,.8,.46,.31]);
-        }
-      }
+        segment(0,1,1,1,{bevel:.07});
     }
     const bottom=levels[0];
     if (b.type!==12 && b.type!==11) {
@@ -450,31 +411,40 @@ export function towers(scene, buildings, local = false) {
       if (!screens.has(id)) screens.set(id,[]);
       const tall=b.h>62 && ![10,11,12].includes(b.type);
       const level=tall ? b.h * (local ? .32 : .55):Math.min(31,b.h*.34);
-      const w=portrait?Math.min(25,b.w*.45):Math.min(55,b.w*.67);
-      const height=portrait?Math.min(w*1.54,b.h*.45):Math.min(w*.55,b.h*.35);
+      const preferredWidth=portrait?Math.min(25,b.w*.45):Math.min(55,b.w*.67);
       const form=levels.find(form=>form.base<=level && form.base+form.h>=level)??bottom;
-      const faceX=form.x+(b.type===9?form.w*.08:0);
-      const depth=Math.max(form.d,form.topD)*.5+1.55;
       const signFaces=local?[-1,1]:[1];
       for (const face of signFaces) {
-        const z=b.z+face*depth;
+        const mount=masses && signMount(levels,level,face);
+        const faceX=mount ? mount.x : form.x+(b.type===9?form.w*.08:0);
+        const bracket=mount && b.style===2 ? Math.max(0,b.d*.50-face*(mount.z-b.z)) : 0;
+        const z=mount ? mount.z+face*(.85+bracket) : b.z+face*(Math.max(form.d,form.topD)*.5+1.55);
+        const w=mount ? Math.min(preferredWidth,mount.span*.86) : preferredWidth;
+        const height=portrait?Math.min(w*1.54,b.h*.45):Math.min(w*.55,b.h*.35);
         screens.get(id).push(signItem(faceX,level,z,w,height,face===1?0:Math.PI,b));
         caps.push([faceX,level,z-face*.47,w+.75,height+.75,.58]);
+        if (bracket>.1) caps.push([faceX,level,z-face*(.55+bracket*.5),w*.44,height*.16,bracket+.8]);
         ribs.push([faceX,level-height*.51,z-face*.25,w+.31,.48,1.35]);
       }
       if (local && tall && b.landmark) {
         const floor=Math.max(16,level-1), face=b.towardGuide;
-        const x=b.x+face*(b.w*.5+1.3);
-        screens.get(id).push(signItem(x,floor,b.z,w*.83,height,face*Math.PI/2,b));
-        caps.push([x-face*.36,floor,b.z,.7,height+.68,w*.84]);
+        const mount=masses && signMount(levels,floor,face,true);
+        const x=mount ? mount.x+face*.85 : b.x+face*(b.w*.5+1.3);
+        const z=mount ? mount.z : b.z;
+        const width=mount ? Math.min(preferredWidth*.83,mount.span*.86) : preferredWidth*.83;
+        const height=portrait?Math.min(width*1.54,b.h*.45):Math.min(width*.55,b.h*.35);
+        screens.get(id).push(signItem(x,floor,z,width,height,face*Math.PI/2,b));
+        caps.push([x-face*.36,floor,z,.7,height+.68,width+.39]);
       }
     }
     if (b.landmark) {
       if (!plaques.has(b.sign)) plaques.set(b.sign,[]);
       const h=b.type===12?b.h*.795: Math.min(b.h*.39,43), w=Math.min(50,b.w*.70);
       for (const face of [-1,1]) {
-        const z=b.z+face*(b.type===12?b.d*.395:b.d*.44);
-        plaques.get(b.sign).push(signItem(b.x,h,z,w,w*.22,face<0?Math.PI:0,b));
+        const mount=masses && signMount(levels,h,face);
+        const z=mount ? mount.z+face*.89 : b.z+face*(b.type===12?b.d*.395:b.d*.44);
+        const width=mount ? Math.min(w,mount.span*.9) : w;
+        plaques.get(b.sign).push(signItem(mount ? mount.x : b.x,h,z,width,width*.22,face<0?Math.PI:0,b));
       }
     }
     parts.forEach((items,i)=>turnParts(items,limits[i],b));
@@ -488,8 +458,9 @@ export function towers(scene, buildings, local = false) {
   batch(scene,wedge,panels,slopeRoofs);
   lights.forEach((items,style)=>batch(scene,box,towerNeon[style],items));
   batch(scene,box,beacon,beacons);
+  addPlants(scene,'shrub',shrubs);
   addScreens(scene,screens,plaques);
-  return addFacades(scene,slices);
+  return addFacades(scene,slices,cladding,coated);
 }
 
 function ventStrike(vents,x,y,z,w) {
