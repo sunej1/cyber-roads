@@ -11,7 +11,7 @@ import { generateTile, localTraffic } from './world.js';
 import { asphalt } from './surface-materials.js';
 import { detailHierarchy } from './detail-selection.js';
 import { streetDetails } from './streetscape.js';
-import { streetFixtures, streetLighting } from './street-lighting.js';
+import { addStreetLamps, streetLighting } from './street-lighting.js';
 
 const { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial }=THREE;
 const lightColors=['#ffc479','#62d8ed','#ff785c','#e4b154','#fff1a4','#add27e'];
@@ -151,7 +151,6 @@ function basinWater(time) {
 const stone = new MeshStandardMaterial({ color: '#323a3b', roughness: .75 });
 const publicGreen = new MeshStandardMaterial({ color: '#415044', roughness: .9 });
 const paintedLines = new MeshBasicMaterial({ color: '#afa17c' });
-const warmLamp = neon('#ffcc87', 2.4);
 const coldLamp = neon('#9ddbe2', 1.65);
 const hazardLamp = neon('#ff6b41', 2.4);
 const pavementGlow = new THREE.ShaderMaterial({
@@ -396,7 +395,7 @@ function ground(scene, buildings, waterTime) {
   batch(scene, box, stone, curbs);
   batch(scene, box, paintedLines, paint);
   batch(scene, box, structural, poles.concat(stems, buoys));
-  batch(scene, box, warmLamp, lamps);
+  const fixtures=addStreetLamps(scene,lamps);
   batch(scene, box, coldLamp, signs);
   batch(scene, box, hazardLamp, signals);
   batch(scene, pavingPlane, pavementGlow, spill);
@@ -405,7 +404,7 @@ function ground(scene, buildings, waterTime) {
   batch(scene, box, basinWater(waterTime), pools);
   batch(scene, box, new MeshStandardMaterial({ roughness: .62 }), awnings);
   batch(scene, new THREE.IcosahedronGeometry(1, 1), new MeshStandardMaterial({ roughness: 1, emissive: '#0a2824', emissiveIntensity: .65 }), leaves);
-  return streetFixtures(lamps);
+  return fixtures;
 }
 
 function mountains(scene) {
@@ -701,9 +700,10 @@ function drawTile(tile, detail) {
       const lx=px+nx*s,lz=pz+nz*s;
       const h=kind==='avenue'?6.4:4.15;
       curbs.push([lx,y+h*.5,lz,.31,h,.31]);
-      lights.push([lx-nx*sign*1.6,y+h,lz-nz*sign*1.6,1.28,.32,.62,Math.atan2(dz,dx)]);
+      const tint=tile.district.color;
+      lights.push([lx-nx*sign*1.6,y+h,lz-nz*sign*1.6,1.28,.32,.62,Math.atan2(dz,dx),tint]);
       beam(curbs,lx,y+h-.55,lz,lx-nx*sign*1.8,y+h,lz-nz*sign*1.8,.19,.20);
-      pools.push([px+nx*s*.35,y+.24,pz,Math.min(16,width*.84),1,15,Math.atan2(dx,dz),tile.district.color]);
+      pools.push([px+nx*s*.35,y+.24,pz,Math.min(16,width*.84),1,15,Math.atan2(dx,dz),tint]);
     }
     if (kind==='avenue') {
       for (const t of [.055,.945]) for (let stripe=-3;stripe<=3;stripe++) {
@@ -728,12 +728,11 @@ function drawTile(tile, detail) {
   if (detail) {
     batch(group,box,trim,curbs);
     batch(group,box,paintedLines,marks);
-    batch(group,box,warmLamp,lights);
+    fixtures=addStreetLamps(group,lights,tile.x,tile.z);
     batch(group,box,steel,rails);
     batch(group,box,bridgeGlass,glazing);
     batch(group,pavingPlane,pavementGlow,pools);
     hierarchy=detailHierarchy(towers(group,tile.buildings,true),tile.x,tile.z);
-    fixtures=streetFixtures(lights,tile.x,tile.z);
     const {circuits,roads}=localTraffic(tile);
     move=addMovingTraffic(group,circuits,roads,marketPaths,tile.seed);
   } else {
