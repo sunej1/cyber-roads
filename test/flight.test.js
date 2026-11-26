@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { Vector3 } from 'three';
 import { closestSpine, coreEdge, districtForPosition, landmarksNear, spinePoint, streetVertex, tileAt, tileSize } from '../src/extent.js';
 import { airCircuits, streetRuns } from '../src/traffic.js';
-import { gardenBasins, gardenWalks, harborMarket, isOnLand, streetPoint, streets } from '../src/meridian-plan.js';
+import { gardenBasins, gardenWalks, harborMarket, isOnLand, lanternMile, streetPoint, streets } from '../src/meridian-plan.js';
 import { generateTile, localTraffic } from '../src/world.js';
 import { advanceFlight, departure, districtAt, districts, footprintsOverlap, generateBuildings, harborExit, intersectsBuilding, length, nearestGuideFlight, nearestRoute, newFlight, park, plaza, route } from '../src/flight.js';
 
@@ -205,6 +205,21 @@ test('Glass Gardens meets all eight street ends and leaves its walks clear of th
     }
   }
   assert.equal(entrances.size, 8);
+});
+
+test('Lantern Mile keeps narrow shops on both sides of every market block under the guided tour', () => {
+  const {x,blocks}=lanternMile;
+  const shops=generateBuildings().filter(b=>b.nightMarket);
+  assert.equal(blocks.length,3);
+  for (const [start,end] of blocks) for (const side of [-1,1]) {
+    const frontage=shops.filter(b=>(b.x-x)*side>0 && b.z>start && b.z<end && b.w<22);
+    assert.ok(frontage.length>=3);
+    assert.ok(frontage.every(b=>b.retail && b.frontage && b.streetGap<=11));
+  }
+  const guide=route.getSpacedPoints(1700).filter(p=>p.z>lanternMile.start && p.z<lanternMile.end
+    && Math.abs(p.x-x)<24);
+  assert.ok(guide.length>100);
+  assert.ok(guide.every(p=>shops.every(b=>!intersectsBuilding(p,b,15))));
 });
 
 test('the central air lane weaves between tower walls and passes the five mapped landmarks', () => {
