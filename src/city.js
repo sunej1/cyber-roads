@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { box, batch, beam, line, neon } from './scene-parts.js';
-import { towers, facadeColors, structural, trim } from './architecture.js';
+import { towers, distantMegabuildings, facadeColors, structural, trim } from './architecture.js';
 import { setScreenTime } from './ads.js';
 import { generateBuildings, park, plaza, randomFor, shore } from './flight.js';
 import { airCircuits, streetRuns } from './traffic.js';
@@ -760,7 +760,7 @@ function drawTile(tile, detail) {
     move=addMovingTraffic(group,circuits,roads,marketPaths,tile.seed);
   } else {
     const silhouettes=[], stacks=[];
-    for (const b of tile.buildings) {
+    for (const b of distantMegabuildings(group,tile.buildings)) {
       const entry=[b.x,b.h/2,b.z,b.w,b.h,b.d,b.yaw,facadeColors[b.style]];
       if (b.type===8 || b.type===4 || b.type===12) stacks.push(entry);
       else if (b.type===9) {
