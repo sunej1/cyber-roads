@@ -546,6 +546,37 @@ function tileTerrain({x,z}) {
   return new Mesh(geometry,terrainMaterial);
 }
 
+function addSableLoadingBay(tile, cargo, paint) {
+  const x=44-tile.x, z=1878-tile.z;
+  const loaderZ=z-2, amber='#bd853d', steelColor='#485559';
+  cargo.push([x-5,1.37,loaderZ,7.2,1.32,4.6,0,amber],
+    [x-7,2.42,loaderZ,3.5,1.02,3.8,0,amber],
+    [x-3.7,4.69,loaderZ,5.1,.34,4.6,0,amber],
+    [x-.65,2.04,loaderZ,.72,.48,3.1,0,steelColor]);
+  for (const side of [-1,1]) {
+    cargo.push([x-5,.79,loaderZ+side*1.82,7.7,1.23,1.15,0,'#262d30'],
+      [x-.65,2.67,loaderZ+side*1.05,.46,4.98,.52,0,steelColor],
+      [x+1.52,.42,loaderZ+side*1.05,4.72,.23,.42,0,steelColor]);
+    for (const post of [-5.9,-1.45]) {
+      cargo.push([x+post,3.24,loaderZ+side*1.86,.33,2.68,.33,0,steelColor]);
+    }
+    for (const end of [-1,1]) {
+      const cornerX=x+side*13.5, cornerZ=z+end*11.5;
+      paint.push([cornerX-side*2.15,.191,cornerZ,4.8,.024,.56,0,'#f0cb86'],
+        [cornerX,.191,cornerZ-end*2.68,.56,.024,4.8,0,'#f0cb86']);
+    }
+  }
+  for (const [depth,height,color] of [[-2,2.7,'#637e78'],[7,3.35,'#93664d']]) {
+    const loadX=x+6.2, loadZ=z+depth;
+    cargo.push([loadX,.66,loadZ,8.35,.28,7.6,0,steelColor],
+      [loadX,.8+height/2,loadZ,7.35,height,6.7,0,color]);
+    for (const side of [-1,1]) {
+      cargo.push([loadX,.35,loadZ+side*2.6,8.2,.36,.7,0,steelColor],
+        [loadX+side*2,.8+height,loadZ,.48,.11,6.85,0,'#a4a8a0']);
+    }
+  }
+}
+
 function drawTile(tile, detail) {
   const group=new Group();
   group.add(tileTerrain(tile));
@@ -763,6 +794,7 @@ function drawTile(tile, detail) {
     }
   }
 
+  if (detail && tile.landmarks.some(landmark=>landmark.sign==='LOCK 04')) addSableLoadingBay(tile,docks,marks);
   batch(group,box,paving,paved);
   batch(group,box,yardSurface,yards);
   batch(group,box,turf,lawns);
