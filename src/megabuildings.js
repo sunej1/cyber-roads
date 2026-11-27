@@ -16,7 +16,7 @@ export function towerMasses(b) {
       for (const [i,y] of (tall ? [.35,.63,.87] : [.49,.89]).entries()) {
         block(y-.19,y,.50,i%2 ? .62 : .74,{shift:flip*.20,slide:i%2 ? .065 : -.045,bevel:.05});
         block(y,y+.045,.96,.94,{skin:i%2 ? '#928f7e' : '#a69b83',bevel:.065});
-        block(y+.045,y+.057,.90,.87,{skin:'#544e40',bevel:.065});
+        block(y+.045,y+.057,.90,.87,{skin:'#544e40',bevel:.065,serviceDeck:!tall && i===1});
       }
       block(.94,1,.26,.29,{shift:-flip*.21,skin:'#847b65',bevel:.08});
       break;
