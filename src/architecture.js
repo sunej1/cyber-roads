@@ -43,6 +43,33 @@ function signItem(x,y,z,w,h,yaw,b) {
 }
 
 const roof = new MeshStandardMaterial({ color: '#3c4140', roughness: .77, metalness: .23, side: THREE.DoubleSide });
+const wetDeck = new MeshStandardMaterial({
+  roughness:.58, metalness:.02,
+  map:surfaceMap(128,ctx => {
+    for (let y=0;y<128;y+=32) {
+      ctx.fillStyle=y%64 ? '#444b4b' : '#4a5151';
+      ctx.fillRect(0,y,128,32);
+      ctx.fillStyle='#383f3f';
+      ctx.fillRect(0,y,128,1);
+      ctx.fillRect(y%64 ? 39 : 93,y,1,32);
+    }
+  }),
+  roughnessMap:surfaceMap(128,ctx => {
+    ctx.fillStyle='#ececec';
+    ctx.fillRect(0,0,128,128);
+    for (const [x,y,rx,ry] of [[31,37,24,15],[94,63,24,28],[57,108,18,14]]) {
+      ctx.save();
+      ctx.translate(x,y);
+      ctx.scale(rx,ry);
+      const puddle=ctx.createRadialGradient(0,0,.28,0,0,1);
+      puddle.addColorStop(0,'#9d9d9d');
+      puddle.addColorStop(1,'#9d9d9d00');
+      ctx.fillStyle=puddle;
+      ctx.fillRect(-1,-1,2,2);
+      ctx.restore();
+    }
+  },true),
+});
 const panelMap = surfaceMap(512,ctx => {
   ctx.fillStyle='#e0dbd1';
   ctx.fillRect(0,0,512,512);
@@ -85,20 +112,20 @@ function addMesh(scene, material, positions, uv, colors) {
 }
 
 function massForm(building,from,to,w,d,options={},windowOffset=0) {
-  const { topW=w,topD=d,lean=0,shift=0,slide=0,bevel=0,sides=0,phase=0,twist=0,skin,cover=false } = options;
+  const { topW=w,topD=d,lean=0,shift=0,slide=0,bevel=0,sides=0,phase=0,twist=0,skin,cover=false,wetTop=false } = options;
   const x=building.x+shift*building.w,z=building.z+slide*building.d;
   return {x,z,w:w*building.w,d:d*building.d,base:from*building.h,h:(to-from)*building.h,
     topW:topW*building.w,topD:topD*building.d,topX:x+lean*building.w,topZ:z,
-    bevel,sides,phase,twist,skin,cover,building,windowOffset};
+    bevel,sides,phase,twist,skin,cover,wetTop,building,windowOffset};
 }
 
 function addFacades(scene, slices, cladding, coated = []) {
-  const roofs = [], detailFaces = [];
+  const roofs = [], wetRoofs = [], wetUV = [], detailFaces = [];
   function surfaces(forms, material, style, solid=false) {
     const vertices=[], uv=[], colors=[];
     const {grid:[cols,rows],repeat:[width,rise]}=finishes[style];
     const color=new THREE.Color();
-    for (const {x,z,w,d,base,h,topW,topD,topX,topZ,bevel,sides,phase,twist,skin,cover,windowOffset,building} of forms) {
+    for (const {x,z,w,d,base,h,topW,topD,topX,topZ,bevel,sides,phase,twist,skin,cover,wetTop,windowOffset,building} of forms) {
       const lower = profile(x,z,w,d,bevel,sides,phase).map(([x,z])=>turn(x,z,building));
       const upper = profile(topX,topZ,topW,topD,bevel,sides,phase+twist).map(([x,z])=>turn(x,z,building));
       const [roofX,roofZ] = turn(topX,topZ,building);
@@ -118,9 +145,11 @@ function addFacades(scene, slices, cladding, coated = []) {
         if (solid) {
           let count=6;
           if (cap) {
-            vertices.push(roofA,top,roofB, dx,top,dz, cx,top,cz);
-            uv.push((roofA-roofX)/16+.5,(roofB-roofZ)/16+.5,(dx-roofX)/16+.5,(dz-roofZ)/16+.5,(cx-roofX)/16+.5,(cz-roofZ)/16+.5);
-            count+=3;
+            const roofVertices=wetTop ? wetRoofs : vertices;
+            const roofUV=wetTop ? wetUV : uv;
+            roofVertices.push(roofA,top,roofB, dx,top,dz, cx,top,cz);
+            roofUV.push((roofA-roofX)/16+.5,(roofB-roofZ)/16+.5,(dx-roofX)/16+.5,(dz-roofZ)/16+.5,(cx-roofX)/16+.5,(cz-roofZ)/16+.5);
+            if (!wetTop) count+=3;
             if (base > 0) {
               vertices.push(footA,low,footB, bx,low,bz, ax,low,az);
               uv.push((footA-footX)/16+.5,(footB-footZ)/16+.5,(bx-footX)/16+.5,(bz-footZ)/16+.5,(ax-footX)/16+.5,(az-footZ)/16+.5);
@@ -153,6 +182,7 @@ function addFacades(scene, slices, cladding, coated = []) {
   if (cladding.length) surfaces(cladding,slices ? hull : enamel,0,true);
   if (coated.length) surfaces(coated,enamel,0,true);
   addMesh(scene,roof,roofs);
+  addMesh(scene,wetDeck,wetRoofs,wetUV);
   if (slices) return facadeClusters(detailFaces);
 }
 
@@ -189,6 +219,25 @@ wedge.computeVertexNormals();
 const panels = new MeshStandardMaterial({ roughness: .68, metalness: .32 });
 const glass = new MeshStandardMaterial({ color: '#2b4148', roughness: .29, metalness: .6, emissive: '#789ba0', emissiveIntensity: .16 });
 const pipeMetal = new MeshStandardMaterial({ roughness: .64, metalness: .44 });
+
+function roofVentilator(form, vents, rounds) {
+  const {x,z,base,h,building:b}=form;
+  const side=b.type%2 ? -1 : 1;
+  const top=base+h;
+  // The open half of the deck sits opposite the taller service core.
+  const cx=x+side*b.w*.22, cz=z+side*b.d*.11;
+  const width=b.w*.28, depth=Math.min(5.4,b.d*.24);
+  const height=Math.min(1.4,(b.h-top)*.72), bottom=top+.18;
+  vents.push(
+    [cx,top+.09,cz,width+.25,.18,depth+.28,0,'#404746'],
+    [cx,bottom+height*.5,cz,width,height,depth,0,'#8c9892'],
+    [cx,bottom+height*.55,cz+depth*.5,width*.79,height*.49,.14,0,'#343e3c'],
+  );
+  const diameter=Math.min(width*.34,depth*.62);
+  for (const offset of [-.24,.24]) {
+    rounds.push([cx+width*offset,bottom+height+.04,cz,diameter,.08,diameter,0,'#374341']);
+  }
+}
 
 function towerSystems(b, solids, pipes, foliage, lights) {
   const {x,z,w,h,d,style}=b;
@@ -314,7 +363,9 @@ export function towers(scene, buildings, local = false) {
     const masses=towerMasses(b);
     if (masses) {
       for (const {from,to,w,d,...shape} of masses) {
-        segment(from,to,w,d,{...shape,cover:true});
+        const wetTop=shape.serviceDeck && b.nightMarket && b.retail;
+        const form=segment(from,to,w,d,{...shape,cover:true,wetTop});
+        if (wetTop) roofVentilator(form,vents,rounds);
       }
       towerSystems(b,vents,rounds,shrubs,lit);
     } else switch (b.type) {
