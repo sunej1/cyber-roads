@@ -43,12 +43,14 @@ export function createRain(scene, camera, fewerDrops, lights) {
           tint+=lampColors[i]*edge*edge/(1.0+.035*distanceSquared);
         }
         vec4 view=viewMatrix*vec4(at,1.0);
+        // Use the center depth so both ends soften together near the camera.
+        float depthFade=smoothstep(2.4,20.0,-view.z);
         vec3 along=(viewMatrix*vec4(velocity*mix(.025,.076,seed.w),0.0)).xyz;
         vec2 across=normalize(vec2(along.y,-along.x)+vec2(.0001,0.0));
-        view.xyz+=along*position.y;
+        view.xyz+=along*position.y*mix(.2,1.0,depthFade);
         view.xy+=across*position.x*clamp(-view.z*.0027,.019,.115);
         float range=length(offset);
-        opacity=mix(.20,.61,seed.w)*smoothstep(2.4,7.0,-view.z)*(1.0-smoothstep(20.0,43.0,range));
+        opacity=mix(.20,.61,seed.w)*depthFade*(1.0-smoothstep(20.0,43.0,range));
         streak=uv;
         gl_Position=projectionMatrix*view;
       }`,
