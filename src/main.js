@@ -19,8 +19,8 @@ const canvas = element('view');
 const menu = element('menu');
 const hud = document.querySelector('.hud');
 const touch = element('touch');
+const exploreButton = element('explore');
 const tourButton = element('tour');
-const manualButton = element('manual');
 const districtButton = element('district-tour');
 const landmarkText = element('landmark-name');
 const cameraButton = element('camera');
@@ -32,11 +32,13 @@ const modeButton = element('mode');
 const map = element('map');
 const mapContext = map.getContext('2d');
 const mapBase = document.createElement('canvas');
-mapBase.width = map.width;
-mapBase.height = map.height;
-const mapScale = .073;
+const guideMap = document.createElement('canvas');
+mapBase.width = guideMap.width = map.width;
+mapBase.height = guideMap.height = map.height;
+// Fit the northern edge of the core and the departure lane in one map.
+const mapScale = .07;
 const mapX = x => 230 + x * mapScale;
-const mapY = z => 99 + z * mapScale;
+const mapY = z => 123 + z * mapScale;
 
 const circuit = [];
 for (const district of districts) {
@@ -50,7 +52,6 @@ for (const district of districts) {
   element('districts').append(item);
   circuit.push(item);
 }
-element('route-length').textContent = 'Outbound tour';
 
 function drawMapBase(buildings) {
   const ctx = mapBase.getContext('2d');
@@ -92,6 +93,16 @@ function drawMapBase(buildings) {
   ctx.fillStyle = '#46736f';
   for (const { x, z, w, d } of [park, plaza]) ctx.fillRect(mapX(x - w / 2), mapY(z - d / 2), w * mapScale, d * mapScale);
   ctx.restore();
+  ctx.fillStyle = '#9aacbd';
+  ctx.font = '16px monospace';
+  ctx.fillText('N', 417, 38);
+  ctx.beginPath();
+  ctx.moveTo(422, 44); ctx.lineTo(417, 54); ctx.lineTo(427, 54); ctx.closePath(); ctx.fill();
+}
+
+function drawGuideMap() {
+  const ctx = guideMap.getContext('2d');
+  ctx.drawImage(mapBase, 0, 0);
   ctx.beginPath();
   const openingRoute = routeSamples.concat(departure.getSpacedPoints(35));
   openingRoute.forEach(({ x, z }, i) => i === 0 ? ctx.moveTo(mapX(x), mapY(z)) : ctx.lineTo(mapX(x), mapY(z)));
@@ -111,11 +122,6 @@ function drawMapBase(buildings) {
     ctx.lineWidth = 1;
     ctx.stroke();
   }
-  ctx.fillStyle = '#9aacbd';
-  ctx.font = '16px monospace';
-  ctx.fillText('N', 417, 38);
-  ctx.beginPath();
-  ctx.moveTo(422, 44); ctx.lineTo(417, 54); ctx.lineTo(427, 54); ctx.closePath(); ctx.fill();
 }
 
 const keyMap = new Map(Object.entries({
@@ -136,7 +142,7 @@ const pace = 1 / 120;
 let renderer, scene, camera, composer, city, craft, rayPass, updateRain;
 let status = 'ready';
 let flight = newFlight();
-let guided = true;
+let guided = false;
 let noseCamera = false;
 let lookYaw = 0;
 let lookPitch = 0;
@@ -145,7 +151,7 @@ let snapCamera = true;
 let time = 0;
 let width = 1, height = 1;
 let last = 0, accumulator = 0, nextHud = 0;
-let displayedDistrict = null;
+let displayedDistrict;
 let displayedWarning = false;
 let viewedLandmark = null;
 let landmarkLook = 0;
@@ -166,23 +172,24 @@ function setStatus(value) {
   hud.hidden = !flying;
   pauseButton.hidden = cameraButton.hidden = !flying;
   restartButton.hidden = !paused;
-  districtButton.hidden = paused;
+  tourButton.hidden = districtButton.hidden = paused;
   touch.hidden = !flying || guided;
-  tourButton.firstElementChild.textContent = paused && guided ? 'Resume guided flight' : 'Start guided flight';
-  manualButton.firstElementChild.textContent = paused && !guided ? 'Resume manual flight' : 'Fly manually';
+  exploreButton.firstElementChild.textContent = paused
+    ? (guided ? 'Resume guided flight' : 'Resume free flight') : 'Explore Meridian';
   element('launch-title').innerHTML = paused ? 'FLIGHT<span> PAUSED</span>' : 'CYBER<span> ROADS</span>';
-  element('menu-copy').textContent = paused ? 'Resume from your current position or restart at the harbor.' : 'Fly low through Meridian or join the district tour at the canal.';
-  element('state').textContent = paused ? 'Flight paused' : flying ? (guided ? 'Guided flight' : 'Manual flight') : 'System ready';
+  element('menu-copy').textContent = paused ? 'Resume from your current position or restart at the harbor.' : 'Take the controls at Harbor Approach.';
+  element('state').textContent = paused ? 'Flight paused' : flying ? (guided ? 'Guided flight' : 'Free flight') : 'System ready';
+  element('map-title').textContent = guided ? 'Flight route' : 'Navigation';
   modeButton.lastChild.textContent = guided ? ' Take control' : ' Join guided flight';
   recoverButton.hidden = guided;
   game.classList.toggle('guided', guided);
   clearInput();
   accumulator = 0;
   nextHud = 0;
-  if (paused) (guided ? tourButton : manualButton).focus();
+  if (paused) exploreButton.focus({ preventScroll: true });
 }
 
-function returnToRoute() {
+function recoverToLane() {
   const distance = flight.distance;
   flight = nearestGuideFlight(flight.position);
   flight.distance = distance;
@@ -196,12 +203,15 @@ function startFlight(useGuide, restart = false) {
     flight = newFlight();
     snapCamera = true;
     noseCamera = false;
+  } else if (status === 'ready') {
+    snapCamera = true;
+  } else if (useGuide && !guided) {
+    recoverToLane();
   }
-  if (useGuide && !guided && !restart) returnToRoute();
   guided = useGuide;
   lookYaw = lookPitch = 0;
   setStatus('flying');
-  if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  canvas.focus({ preventScroll: true });
   cameraButton.setAttribute('aria-label', noseCamera ? 'Switch to chase view' : 'Switch to nose view');
 }
 
@@ -221,20 +231,20 @@ function changeCamera() {
   snapCamera = true;
 }
 
+exploreButton.addEventListener('click', () => startFlight(guided));
 tourButton.addEventListener('click', () => startFlight(true));
-manualButton.addEventListener('click', () => startFlight(false));
 districtButton.addEventListener('click', () => {
   if (!renderer) return;
-  flight = nearestGuideFlight(spinePoint(0,coreEdge+145));
-  guided = true;
-  noseCamera = false;
-  snapCamera = true;
+  flight = nearestGuideFlight(spinePoint(0, coreEdge + 145));
   startFlight(true);
 });
 restartButton.addEventListener('click', () => startFlight(guided, true));
 cameraButton.addEventListener('click', changeCamera);
 pauseButton.addEventListener('click', () => setStatus('paused'));
-recoverButton.addEventListener('click', returnToRoute);
+recoverButton.addEventListener('click', () => {
+  recoverToLane();
+  canvas.focus({ preventScroll: true });
+});
 modeButton.addEventListener('click', () => startFlight(!guided));
 
 addEventListener('keydown', event => {
@@ -247,7 +257,7 @@ addEventListener('keydown', event => {
   if (!event.repeat) {
     if (event.code === 'KeyC') changeCamera();
     if (event.code === 'KeyV') startFlight(!guided);
-    if (event.code === 'KeyR' && !guided) returnToRoute();
+    if (event.code === 'KeyR' && !guided) recoverToLane();
   }
   if (keyMap.has(event.code)) {
     event.preventDefault();
@@ -296,7 +306,7 @@ const cartography = {
 function nearbyLandmark(position) {
   let next = null;
   let closest = Infinity;
-  const direction=flight.spine?.direction ?? (Math.cos(flight.yaw)>0?-1:1);
+  const direction = guided && flight.spine ? flight.spine.direction : Math.cos(flight.yaw) > 0 ? -1 : 1;
   for (const { data } of city.nearbyLayouts()) for (const landmark of data.landmarks) {
     const x=landmark.x+data.x,z=landmark.z+data.z;
     const delta=(z-position.z)*direction;
@@ -374,19 +384,21 @@ function drawLocalRadar(ctx, position, district) {
   }
   ctx.lineCap='butt';
   ctx.setLineDash([]);
-  const track=guided && flight.spine?flight.spine.track:closestSpine(position.x,position.z);
-  ctx.beginPath();
-  for (let i=-540;i<=540;i+=18) {
-    spinePoint(track,position.z+i,radarPoint);
-    if (i===-540) ctx.moveTo(xAt(radarPoint.x),zAt(radarPoint.z));
-    else ctx.lineTo(xAt(radarPoint.x),zAt(radarPoint.z));
+  if (guided) {
+    const track = flight.spine?.track ?? closestSpine(position.x, position.z);
+    ctx.beginPath();
+    for (let i=-540;i<=540;i+=18) {
+      spinePoint(track,position.z+i,radarPoint);
+      if (i===-540) ctx.moveTo(xAt(radarPoint.x),zAt(radarPoint.z));
+      else ctx.lineTo(xAt(radarPoint.x),zAt(radarPoint.z));
+    }
+    ctx.strokeStyle='#122022';
+    ctx.lineWidth=5;
+    ctx.stroke();
+    ctx.strokeStyle=district.color;
+    ctx.lineWidth=2.3;
+    ctx.stroke();
   }
-  ctx.strokeStyle='#122022';
-  ctx.lineWidth=5;
-  ctx.stroke();
-  ctx.strokeStyle=district.color;
-  ctx.lineWidth=2.3;
-  ctx.stroke();
 
   for (const tile of tiles) for (const landmark of tile.landmarks) {
     const x=xAt(tile.x+landmark.x),z=zAt(tile.z+landmark.z);
@@ -415,7 +427,7 @@ function drawLocalRadar(ctx, position, district) {
 function updateMap(localDistrict) {
   const ctx = mapContext;
   if (localDistrict) drawLocalRadar(ctx,flight.position,localDistrict);
-  else ctx.drawImage(mapBase,0,0);
+  else ctx.drawImage(guided ? guideMap : mapBase,0,0);
   ctx.save();
   ctx.translate(localDistrict ? map.width/2 : mapX(flight.position.x),localDistrict ? map.height/2 : mapY(flight.position.z));
   ctx.rotate(flight.yaw);
@@ -445,20 +457,20 @@ function updateHud() {
       district = Math.hypot(position.x-point.x,position.z-point.z) < 165 ? districtAt(station) : null;
     }
   }
-  if (district !== displayedDistrict || !element('route-progress').dataset.drawn) {
+  if (district !== displayedDistrict) {
     displayedDistrict = district;
-    const name = district?.name ?? 'Off route';
-    element('route-progress').dataset.drawn = 'true';
-    element('route-progress').textContent = name;
+    const name = district?.name ?? 'Meridian City';
+    element('map-sector').textContent = name;
     element('sector').textContent = name;
-    element('sector-description').textContent = district?.description ?? 'Free flight';
+    element('sector-description').textContent = district?.description ?? 'City airspace';
     circuit.forEach((item, index) => {
       if (districts[index] === district) item.setAttribute('aria-current', 'location');
       else item.removeAttribute('aria-current');
     });
   }
-  element('route-length').textContent = localDistrict ? 'Local radar' : 'Outbound tour';
-  map.setAttribute('aria-label',localDistrict ? 'Local district flight radar' : 'Map of the Meridian City outbound route');
+  element('map-detail').textContent = localDistrict ? 'Local radar' : guided ? 'Outbound tour' : 'City map';
+  map.setAttribute('aria-label', localDistrict ? 'Local district radar with heading marker'
+    : guided ? 'Map of the Meridian City outbound route' : 'Meridian City map with heading marker');
   element('speed').textContent = String(Math.round(flight.speed * 3.6)).padStart(3, '0');
   element('altitude').textContent = String(Math.round(flight.position.y)).padStart(3, '0');
   const warning = flight.warning > 0;
@@ -582,6 +594,7 @@ function boot() {
     if (hdr) installSkyProbe(renderer,scene);
     city = createCity(scene);
     drawMapBase(city.buildings);
+    drawGuideMap();
     craft = createCraft(scene);
     const coarse = matchMedia('(pointer: coarse)').matches;
     updateRain = createRain(scene,camera,coarse,city.lights);
@@ -611,7 +624,7 @@ function boot() {
     const notice = element('unsupported');
     notice.textContent = 'The 3D view requires WebGL 2. Try a browser with hardware acceleration enabled.';
     notice.hidden = false;
-    tourButton.disabled = manualButton.disabled = districtButton.disabled = true;
+    exploreButton.disabled = tourButton.disabled = districtButton.disabled = true;
     element('state').textContent = '3D view unavailable';
   }
 }

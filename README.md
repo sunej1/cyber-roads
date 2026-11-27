@@ -2,9 +2,9 @@
 
 Fly a hovercar through Meridian City in your browser. [Play Cyber Roads](https://sunej1.github.io/cyber-roads/).
 
-**Start guided flight** takes you between Meridian’s towers and across its waterfront before following the south causeway. **Start district tour** picks up at the canal. The route passes the Sable Locks, Keystone Exchange, Lift 24, Kiln Nine, and Juniper Reservoir as it winds through downtown blocks, a freight belt, and wooded outskirts. Take the controls any time to explore in any direction.
+**Explore Meridian** puts you at the controls of a stationary hovercar at Harbor Approach. **Start guided flight** takes you between Meridian’s towers and across its waterfront before following the south causeway. **Start district tour** picks up at the canal. The tour passes the Sable Locks, Keystone Exchange, Lift 24, Kiln Nine, and Juniper Reservoir as it winds through downtown blocks, a freight belt, and wooded outskirts.
 
-The local radar shows the streets, rail lines, bridges, and landmarks loaded around the vehicle. Arterial roads connect across tile boundaries. Shops face the surrounding streets, canal markets lead to waterfront walks, freight yards sit beside the rail line, and housing follows quieter loops. Civic squares open off the main streets.
+The city map and local radar show your heading. The radar also shows the streets, rail lines, bridges, and landmarks loaded around the vehicle. The route line appears during guided flight. Arterial roads connect across tile boundaries. Shops face the surrounding streets, canal markets lead to waterfront walks, freight yards sit beside the rail line, and housing follows quieter loops. Civic squares open off the main streets.
 
 | Control | Action |
 | --- | --- |
@@ -14,11 +14,11 @@ The local radar shows the streets, rail lines, bridges, and landmarks loaded aro
 | Shift + throttle | Boost |
 | C or the camera button | Chase / nose camera |
 | Drag the 3D view | Look around |
-| V | Switch between manual and guided flight |
-| R | Return to the nearest point on the route |
+| V | Take control or join guided flight |
+| R | Optional recovery to a nearby safe air lane at rest. You keep control. |
 | Esc | Pause / resume |
 
-Touch devices have on-screen flight controls. The 3D view requires a browser with WebGL 2.
+The pause menu lets you resume in the current mode or restart at Harbor Approach. Touch devices have on-screen flight controls. The 3D view requires a browser with WebGL 2.
 
 ## Rendering
 

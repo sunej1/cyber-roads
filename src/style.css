@@ -27,6 +27,7 @@ button:disabled { cursor: default; opacity: .5; }
 }
 #view, .vignette { position: absolute; inset: 0; height: 100%; width: 100%; }
 #view { display: block; touch-action: none; }
+#view:focus-visible { outline: 2px solid var(--aqua); outline-offset: -2px; }
 [data-mode="flying"] #view { cursor: grab; }
 [data-mode="flying"] #view:active { cursor: grabbing; }
 .vignette {
@@ -336,6 +337,7 @@ kbd {
   .flight-state { padding: 7px; }
   .top-actions { gap: 4px; }
   .icon-button { width: 31px; height: 32px; }
+  .controls { flex-wrap: wrap; align-content: center; row-gap: 4px; }
   .controls > span:nth-child(4) { display: none; }
 }
 

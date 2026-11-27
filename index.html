@@ -9,8 +9,23 @@
   </head>
   <body>
     <main id="game" aria-label="Cyber Roads flying game" data-mode="ready">
-      <canvas id="view" aria-label="3D view of Meridian City"></canvas>
+      <canvas id="view" aria-label="3D view of Meridian City" tabindex="-1"></canvas>
       <div class="vignette" aria-hidden="true"></div>
+
+      <section id="menu" class="launch frame" aria-labelledby="launch-title">
+        <div class="launch-inner">
+          <p class="location"><span aria-hidden="true"></span> Meridian City <span class="location-divider">/</span> 22:47</p>
+          <h1 id="launch-title">CYBER<span> ROADS</span></h1>
+          <p id="menu-copy" class="intro">Take the controls at Harbor Approach.</p>
+          <div class="launch-actions">
+            <button id="explore" class="action primary" type="button"><span>Explore Meridian</span><span aria-hidden="true">↗</span></button>
+            <button id="tour" class="action secondary" type="button"><span>Start guided flight</span><span aria-hidden="true">↗</span></button>
+            <button id="district-tour" class="action secondary" type="button"><span>Start district tour</span><span aria-hidden="true">↗</span></button>
+            <button id="restart" class="text-button" type="button" hidden>Restart at Harbor Approach</button>
+          </div>
+          <p id="unsupported" class="notice" role="alert" hidden></p>
+        </div>
+      </section>
 
       <header class="topbar">
         <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>CYBER ROADS</span></div>
@@ -22,26 +37,11 @@
         </div>
       </header>
 
-      <section id="menu" class="launch frame" aria-labelledby="launch-title">
-        <div class="launch-inner">
-          <p class="location"><span aria-hidden="true"></span> Meridian City <span class="location-divider">/</span> 22:47</p>
-          <h1 id="launch-title">CYBER<span> ROADS</span></h1>
-          <p id="menu-copy" class="intro">Fly low through Meridian or join the district tour at the canal.</p>
-          <div class="launch-actions">
-            <button id="tour" class="action primary" type="button"><span>Start guided flight</span><span aria-hidden="true">↗</span></button>
-            <button id="district-tour" class="action secondary" type="button"><span>Start district tour</span><span aria-hidden="true">↗</span></button>
-            <button id="manual" class="action secondary" type="button"><span>Fly manually</span><span aria-hidden="true">↗</span></button>
-            <button id="restart" class="text-button" type="button" hidden>Restart at Harbor Approach</button>
-          </div>
-          <p id="unsupported" class="notice" role="alert" hidden></p>
-        </div>
-      </section>
-
-      <aside class="route-panel frame" aria-labelledby="route-title">
-        <div class="panel-label"><h2 id="route-title">Flight route</h2><span id="route-length"></span></div>
-        <canvas id="map" width="472" height="254" aria-label="Map of the Meridian City outbound route" role="img"></canvas>
-        <ol id="districts" class="districts"></ol>
-        <div class="route-footer"><span class="status-dot"></span><span id="route-progress">Harbor Approach</span></div>
+      <aside class="route-panel frame" aria-labelledby="map-title">
+        <div class="panel-label"><h2 id="map-title">Navigation</h2><span id="map-detail">City map</span></div>
+        <canvas id="map" width="472" height="254" aria-label="Meridian City map with heading marker" role="img"></canvas>
+        <ul id="districts" class="districts"></ul>
+        <div class="route-footer"><span class="status-dot"></span><span id="map-sector">Harbor Approach</span></div>
         <div class="landmark" id="landmark-name" hidden></div>
       </aside>
 
@@ -57,7 +57,7 @@
         </div>
         <div class="hud-actions">
           <p id="warning" role="status" hidden><span aria-hidden="true">△</span> Flight path blocked</p>
-          <button id="recover" class="hud-button" type="button"><kbd>R</kbd> Return to route</button>
+          <button id="recover" class="hud-button" type="button" title="Move to a nearby safe air lane at rest and keep control (R)"><kbd>R</kbd> Safe recovery</button>
           <button id="mode" class="hud-button" type="button"><kbd>V</kbd> Take control</button>
         </div>
       </section>
