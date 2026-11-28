@@ -179,7 +179,7 @@ function entryPath(items, building) {
   const dx=Math.sin(yaw), dz=Math.cos(yaw);
   const end=depth+building.streetGap-1.4;
   line(items,building.x+dx*depth,.19,building.z+dz*depth,
-    building.x+dx*end,building.z+dz*end,Math.min(building.w*.46,building.retail?9.3:4.2),.33);
+    building.x+dx*end,building.z+dz*end,building.type===17 ? building.w*.96 : Math.min(building.w*.46,building.retail?9.3:4.2),.33);
 }
 
 function ground(scene, buildings, waterTime) {

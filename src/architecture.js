@@ -249,6 +249,14 @@ function towerSystems(b, solids, pipes, foliage, lights) {
   const link=(items,a,c,width,color)=>{
     beam(items,x+w*a[0],h*a[1],z+d*a[2],x+w*c[0],h*c[1],z+d*c[2],width,width,color);
   };
+  if (b.use==='urban' && h>=60) {
+    for (const side of [-1,1]) {
+      link(solids,[flip*.22,.21,side*.41],[-flip*.38,.605,side*.41],Math.min(2.7,w*.057),'#59696c');
+      link(solids,[-flip*.38,.21,side*.41],[flip*.22,.605,side*.41],Math.min(1.65,w*.035),'#758888');
+      part(lights,-flip*.09,.621,side*.438,.60,.003,.013);
+    }
+    return;
+  }
   switch (style) {
     case 0:
       for (const side of [-1,1]) {
@@ -435,6 +443,15 @@ export function towers(scene, buildings, local = false) {
         segment(0,.74,1,1,{bevel:.025});
         for (const side of [-1,1]) slopeRoofs.push([b.x+side*b.w*.25,b.h*.865,b.z,b.w*.53,b.h*.25,b.d*1.08,side>0?Math.PI:0,'#635d53']);
         vents.push([b.x+b.w*.12,b.h*.86,b.z+b.d*.20,1.15,3.4,1.60,0,'#656354']);
+        break;
+      case 17:
+        segment(0,.65,.99,.98,{bevel:.019});
+        segment(.65,.79,1,1,{skin:'#657476',bevel:.025});
+        segment(.79,1,.92,.57,{slide:-.14,skin:'#364848',bevel:.038});
+        for (const offset of [-.43,-.29,-.145,0,.145,.29,.43]) {
+          ribs.push([b.x+b.w*offset,3.95,b.z+b.d*.50,.72,7.9,1.4]);
+          vents.push([b.x+b.w*offset,10.08,b.z+b.d*.141,b.w*.106,1.18,.64,0,'#566863']);
+        }
         break;
       default:
         segment(0,1,1,1,{bevel:.07});

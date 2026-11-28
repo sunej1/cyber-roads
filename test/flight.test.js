@@ -251,6 +251,20 @@ test('Canal Exchange market passages join shops and leave receiving courts acces
   }
 });
 
+test('Switchyard arcades meet their office podiums and keep the avenue open', () => {
+  const {blocks,roads}=generateTile(0,4);
+  const frontages=blocks.flatMap(lot=>lot.buildings.filter(b=>b.type===17).map(arcade=>[lot,arcade]));
+  assert.ok(frontages.length>=6);
+  for (const [lot,arcade] of frontages) {
+    const neighbors=lot.buildings.filter(b=>b!==arcade && footprintsOverlap(b,arcade,0));
+    assert.ok(neighbors.length>0 && neighbors.every(b=>b.yaw===arcade.yaw && b.type!==17));
+    for (const {x,z,toX,toZ,width} of roads) {
+      const road={x:(x+toX)/2,z:(z+toZ)/2,w:width,d:Math.hypot(toX-x,toZ-z),yaw:Math.atan2(toX-x,toZ-z)};
+      assert.ok(!footprintsOverlap(road,arcade,3.3));
+    }
+  }
+});
+
 test('the central air lane weaves between tower walls and passes the five mapped landmarks', () => {
   const cache = new Map();
   const get = (col,row) => {

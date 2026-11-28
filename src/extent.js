@@ -11,7 +11,7 @@ export const coreTile = (col, row) => Math.max(Math.abs(col), Math.abs(row)) <= 
 
 export const generatedDistricts = [
   { id: 'canal', name: 'Canal Exchange', description: 'Lock basins and dockside market streets', color: '#6ec6ba', style: 5, starts: 0, elevation: 48 },
-  { id: 'downtown', name: 'Switchyard Center', description: 'Air lanes between tower podiums', color: '#f9ab68', style: 1, starts: 640, elevation: 53 },
+  { id: 'downtown', name: 'Switchyard Center', description: 'Office towers over steel and glass arcades', color: '#f9ab68', style: 1, starts: 640, elevation: 53 },
   { id: 'industry', name: 'Foundry Belt', description: 'Freight rail and refinery complexes', color: '#ee9c68', style: 3, starts: 1760, elevation: 39 },
   { id: 'outskirts', name: 'Juniper Fringe', description: 'Low-rise estates and wooded greenways', color: '#bfd99b', style: 0, starts: 2720, elevation: 35 },
 ];

@@ -6,6 +6,16 @@ export function towerMasses(b) {
   const podium = Math.max(.14,7/b.h);
   const tall = b.h >= 74;
   const flip = b.type % 2 ? -1 : 1;
+  if (b.use==='urban' && b.h>=60) {
+    block(0,.18,.98,.98,{bevel:.032});
+    block(.18,.217,.96,.91,{skin:'#596366'});
+    block(.18,1,.22,.55,{shift:flip*.36,slide:-.12,skin:'#465052',bevel:.05});
+    block(.217,.60,.71,.80,{shift:-flip*.09,bevel:.06});
+    block(.60,.631,.76,.87,{shift:-flip*.09,skin:'#677573'});
+    block(.631,.927,.60,.69,{shift:-flip*.10,slide:flip*.035,bevel:.07});
+    block(.927,.958,.63,.72,{shift:-flip*.10,slide:flip*.035,skin:'#535e60'});
+    return masses;
+  }
   block(0,podium,.98,.98,{bevel:.038});
 
   switch (b.style) {

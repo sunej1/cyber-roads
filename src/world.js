@@ -152,16 +152,20 @@ export function generateTile(col, row) {
   }
   const { roads, streetAt } = pavedRoads(col,row);
   const add = (lot, side, along, w, d, h, type, style, sign) => {
-    const setback = side.road.width/2 + (lot.use==='works' ? 17 : lot.use==='estate' ? 10 :
-      lot.use==='urban' && side.spine ? 19 : 6);
+    const streetGap = type===17 ? 5.4 : lot.use==='works' ? 17 : lot.use==='estate' ? 10 :
+      lot.use==='urban' && side.spine ? 19 : 6;
+    const setback = side.road.width/2 + streetGap;
     const depth = setback + d/2;
     const localX = MathUtils.lerp(side.ax,side.bx,along)+side.inX*depth;
     const localZ = MathUtils.lerp(side.az,side.bz,along)+side.inZ*depth;
     const footprint = { x:localX,z:localZ,yaw:side.yaw,w,d,h,type,style,sign,frontage:true,
-      streetGap:setback-side.road.width/2,
+      streetGap,use:lot.use,
       retail:lot.use==='market' || lot.use==='urban' };
+    // An arcade runs into the aligned podiums to form a shared street-level lobby.
+    const joins = b => type===17 && b.yaw===side.yaw && footprintsOverlap(b,footprint,0);
+    if (type===17 && !lot.buildings.some(joins)) return;
     if (reservations.some(building=>footprintsOverlap(building,footprint,11))
-      || lot.buildings.some(building=>footprintsOverlap(building,footprint,4))) return;
+      || lot.buildings.some(building=>!joins(building) && footprintsOverlap(building,footprint,4))) return;
     const corners = [[-w/2,-d/2],[w/2,-d/2],[-w/2,d/2],[w/2,d/2]];
     const sine = Math.sin(side.yaw), cosine = Math.cos(side.yaw);
     for (const [across, back] of corners) {
@@ -172,7 +176,7 @@ export function generateTile(col, row) {
     if (clearsGuide(footprint)) {
       buildings.push(footprint);
       lot.buildings.push(footprint);
-      return;
+      return footprint;
     }
     // Keep the street wall occupied where a tower would have cut into the low flight corridor.
     const industrial=lot.use==='works';
@@ -225,7 +229,11 @@ export function generateTile(col, row) {
           ? ['kairos','optics','metro','nova'][Math.floor(random()*4)] : undefined;
         const width=44+random()*10, depth=(side.spine?22:35)+random()*11;
         add(lot,side,corner===side.index?.255:.745,width,depth,h,
-          type,[0,1,2,4][Math.floor(random()*4)],sign);
+          type,random()<.74?1:0,sign);
+      }
+      if (front.spine) {
+        const span=Math.hypot(front.bx-front.ax,front.bz-front.az);
+        add(lot,front,.5,span*.66,16,12,17,1) || add(lot,front,.5,span*.53,16,12,17,1);
       }
     } else if (kind === 'industry') {
       if (rail) { lot.use=localZ<2?'yard':'tanks'; continue; }
