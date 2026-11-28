@@ -178,8 +178,9 @@ function entryPath(items, building) {
   const yaw=building.yaw??0, depth=building.d/2;
   const dx=Math.sin(yaw), dz=Math.cos(yaw);
   const end=depth+building.streetGap-1.4;
+  const width=building.type===17 || building.type===18 ? building.w*.96 : Math.min(building.w*.46,building.retail?9.3:4.2);
   line(items,building.x+dx*depth,.19,building.z+dz*depth,
-    building.x+dx*end,building.z+dz*end,building.type===17 ? building.w*.96 : Math.min(building.w*.46,building.retail?9.3:4.2),.33);
+    building.x+dx*end,building.z+dz*end,width,.33);
 }
 
 function ground(scene, buildings, waterTime) {
@@ -630,11 +631,26 @@ function drawTile(tile, detail) {
     }
   };
   for (const lot of tile.blocks) {
-    const {x,z,use,yaw,front,rail,shorefront,buildings,kind,receivingGate}=lot;
+    const {x,z,use,yaw,front,rail,shorefront,buildings,kind,receivingGate,court}=lot;
     const sin=Math.sin(yaw), cos=Math.cos(yaw);
     const orient=(across,depth)=>[x+across*cos+depth*sin,z-across*sin+depth*cos];
     if (detail) for (const building of buildings) entryPath(paved,building);
-    if (use==='plaza' || use==='estate' || use==='grove') {
+    if (court) {
+      const {x,z,yaw,w,d,inX,inZ,entry}=court;
+      paved.push([x,.15,z,w,.30,d,yaw]);
+      line(paved,x,.17,z,entry.x,entry.z,5.4,.34);
+      for (const a of [-.31,.31]) {
+        const bx=x+inZ*w*a,bz=z-inX*w*a;
+        lawns.push([bx,.39,bz,w*.27,.31,d*.53,yaw]);
+        planted(bx,bz,.98,.55);
+        if (!detail) continue;
+        curbs.push([bx,.32,bz,w*.28,.43,d*.55,yaw]);
+        const lx=bx-inX*12,lz=bz-inZ*12;
+        curbs.push([lx,1.24,lz,.30,2.47,.30]);
+        lights.push([lx,2.52,lz,.53,.28,.53]);
+        pools.push([lx,.374,lz,9,1,11,yaw,'#e0b774']);
+      }
+    } else if (use==='plaza' || use==='estate' || use==='grove') {
       if (use==='plaza') {
         paved.push([x,.17,z,93,.34,71,yaw]);
         const wx=(front.ax+front.bx)/2, wz=(front.az+front.bz)/2;

@@ -151,6 +151,15 @@ export function generateTile(col, row) {
     landmarks.push(building);
   }
   const { roads, streetAt } = pavedRoads(col,row);
+  const fitsLot = (lot,{x:localX,z:localZ,yaw,w,d}) => {
+    const sine=Math.sin(yaw), cosine=Math.cos(yaw);
+    for (const across of [-w/2,w/2]) for (const back of [-d/2,d/2]) {
+      const px=localX+across*cosine+back*sine, pz=localZ+back*cosine-across*sine;
+      if (!land(px,pz) || lot.sides.some(s=>(px-s.ax)*s.inX+(pz-s.az)*s.inZ<(s.road?.width??0)/2+4)) return false;
+      if (lot.shorefront && riverAt(px+x,pz+z).distance<22) return false;
+    }
+    return true;
+  };
   const add = (lot, side, along, w, d, h, type, style, sign) => {
     const streetGap = type===17 ? 5.4 : lot.use==='works' ? 17 : lot.use==='estate' ? 10 :
       lot.use==='urban' && side.spine ? 19 : 6;
@@ -164,24 +173,19 @@ export function generateTile(col, row) {
     // An arcade runs into the aligned podiums to form a shared street-level lobby.
     const joins = b => type===17 && b.yaw===side.yaw && footprintsOverlap(b,footprint,0);
     if (type===17 && !lot.buildings.some(joins)) return;
-    if (reservations.some(building=>footprintsOverlap(building,footprint,11))
+    if (!fitsLot(lot,footprint) || reservations.some(building=>footprintsOverlap(building,footprint,11))
       || lot.buildings.some(building=>!joins(building) && footprintsOverlap(building,footprint,4))) return;
-    const corners = [[-w/2,-d/2],[w/2,-d/2],[-w/2,d/2],[w/2,d/2]];
-    const sine = Math.sin(side.yaw), cosine = Math.cos(side.yaw);
-    for (const [across, back] of corners) {
-      const px = localX+across*cosine+back*sine, pz = localZ+back*cosine-across*sine;
-      if (!land(px,pz) || lot.sides.some(s=>(px-s.ax)*s.inX+(pz-s.az)*s.inZ<(s.road?.width??0)/2+4)) return;
-      if (lot.shorefront && riverAt(px+x,pz+z).distance<22) return;
+    let placed=footprint;
+    if (!clearsGuide(footprint)) {
+      // A low street wall can fit below a flight lane that rules out the full building.
+      const industrial=lot.use==='works';
+      placed=type===18 ? { ...footprint,h:10.2 }
+        : { ...footprint,h:industrial?8+random()*4:10+random()*6,type:industrial?15:13 };
+      if (!(h>29 || industrial || type===18) || !clearsGuide(placed)) return;
     }
-    if (clearsGuide(footprint)) {
-      buildings.push(footprint);
-      lot.buildings.push(footprint);
-      return footprint;
-    }
-    // Keep the street wall occupied where a tower would have cut into the low flight corridor.
-    const industrial=lot.use==='works';
-    const podium = { ...footprint,h:industrial?8+random()*4:10+random()*6,type:industrial?15:13 };
-    if ((h>29 || industrial) && clearsGuide(podium)) { buildings.push(podium); lot.buildings.push(podium); }
+    buildings.push(placed);
+    lot.buildings.push(placed);
+    return placed;
   };
 
   for (let j = 0; j < lanesAcross; j++) for (let i = 0; i < lanesAcross; i++) {
@@ -245,11 +249,25 @@ export function generateTile(col, row) {
         continue;
       }
       lot.use = 'estate';
-      const residential = access.find(side=>side.road.kind==='street')??front;
-      for (let k=0;k<5;k++) {
-        add(lot,residential,.16+k*.17,13+random()*4,15+random()*8,
-          9+random()*9,16,[0,3,4,5][Math.floor(random()*4)]);
+      const preferred = front.spine ? front : access.find(side=>side.road.kind==='street')??front;
+      const houses = randomFor(tileSeed(gx,gz));
+      const wings=[.29,.71].map(at=>({at,depth:24+houses()*5,height:17+houses()*7}));
+      let street=preferred;
+      for (const side of [preferred,...access.filter(side=>side!==preferred)]) {
+        const span=Math.hypot(side.bx-side.ax,side.bz-side.az);
+        for (const {at,depth,height} of wings) {
+          add(lot,side,at,span*.355,depth,height,18,0) || add(lot,side,at,span*.29,depth,height,18,0);
+        }
+        if (lot.buildings.length) { street=side; break; }
       }
+      const at=depth=>({x:(street.ax+street.bx)/2+street.inX*(street.road.width/2+depth),
+        z:(street.az+street.bz)/2+street.inZ*(street.road.width/2+depth)});
+      const court={...at(61),w:62,d:35,yaw:street.yaw,inX:street.inX,inZ:street.inZ,entry:at(1.6)};
+      const path={...at(31.3),w:5.4,d:59.4,yaw:street.yaw};
+      if (fitsLot(lot,court) && land(court.entry.x,court.entry.z)
+        && reservations.every(b=>!footprintsOverlap(b,court,6) && !footprintsOverlap(b,path,1))
+        && lot.buildings.every(b=>!footprintsOverlap(b,path,0))) lot.court=court;
+      if (!lot.buildings.length && !lot.court) lot.use='grove';
     } else {
       if (shorefront && access.length>=2 && (localX+localZ)%2===0) { lot.use='plaza'; continue; }
       lot.use = 'market';

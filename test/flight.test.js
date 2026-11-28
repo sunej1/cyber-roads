@@ -265,6 +265,18 @@ test('Switchyard arcades meet their office podiums and keep the avenue open', ()
   }
 });
 
+test('Juniper terraces maintain a street wall and pedestrian access to the shared courts', () => {
+  const tile=generateTile(0,7);
+  const terraces=tile.blocks.filter(lot=>lot.use==='estate' && lot.court && lot.buildings.length===2);
+  assert.ok(terraces.length>=5);
+  for (const {buildings,court} of terraces) {
+    const {entry,yaw,x,z}=court;
+    const path={x:(x+entry.x)/2,z:(z+entry.z)/2,w:5.4,d:Math.hypot(x-entry.x,z-entry.z),yaw};
+    assert.ok(buildings.every(b=>b.type===18 && b.w>32 && b.yaw===yaw));
+    assert.ok(tile.buildings.every(b=>!footprintsOverlap(b,path,0) && !footprintsOverlap(b,court,0)));
+  }
+});
+
 test('the central air lane weaves between tower walls and passes the five mapped landmarks', () => {
   const cache = new Map();
   const get = (col,row) => {

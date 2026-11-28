@@ -453,6 +453,28 @@ export function towers(scene, buildings, local = false) {
           vents.push([b.x+b.w*offset,10.08,b.z+b.d*.141,b.w*.106,1.18,.64,0,'#566863']);
         }
         break;
+      case 18: {
+        segment(0,.83,.99,.96,{bevel:.020});
+        segment(.83,.904,1,1,{skin:'#615b50',bevel:.027});
+        for (const shift of [-.32,.04,.33]) {
+          segment(.904,shift>.3?.967:1,.23,.51,{shift,slide:-.16,skin:'#78746a',bevel:.042});
+          vents.push([b.x+b.w*shift,b.h*.43,b.z+b.d*.505,.72,b.h*.86,1.15,0,'#8c7d63']);
+        }
+        const bays=Math.max(2,Math.round(b.w/9));
+        for (const side of [-1,1]) for (const floor of [.36,.61,.82]) {
+          const y=b.h*floor, z=b.z+side*(b.d*.481+.72), width=b.w*.94;
+          ledges.push([b.x,y,z,width,.37,2.36]);
+          vents.push([b.x,y+.88,z+side*1.13,width,.57,.21,0,'#776a57']);
+          for (let i=0;i<=bays;i++) {
+            const x=b.x+width*(i/bays-.5);
+            ribs.push([x,y+.47,z+side*.68,.20,.97,1.05]);
+            if (i<bays && (i+Math.round(b.h*floor))%3===0) {
+              vents.push([x+1.8,y+.68,z,.99,.51,1.16,0,'#80916d']);
+            }
+          }
+        }
+        break;
+      }
       default:
         segment(0,1,1,1,{bevel:.07});
     }
@@ -460,13 +482,14 @@ export function towers(scene, buildings, local = false) {
     if (b.type!==12 && b.type!==11) {
       const z=b.z+bottom.d*.5+.49;
       const bay=Math.min(7,Math.max(3.3,b.h*.29));
-      const count=b.h>45?5:b.w>21?3:2;
+      const count=b.type===18 ? Math.max(3,Math.round(b.w/12)) : b.h>45?5:b.w>21?3:2;
       for (let i=0;i<count;i++) {
         const x=b.x+((i+.5)/count-.5)*bottom.w*.84;
         glazing.push([x,bay*.5,z,bottom.w*.71/count,bay*.79,.79]);
         ribs.push([x+bottom.w*.37/count,bay*.54,z+.28,.48,bay*1.10,.88]);
+        if (b.type===18) lit.push([x,bay*.93,z+.49,1.08,.19,.29]);
       }
-      if (b.type!==16) {
+      if (b.type!==16 && b.type!==18) {
         caps.push([b.x,bay+.10,z+.72,bottom.w*.80,.74,2.6]);
         lit.push([b.x,bay-.196,z+1.98,bottom.w*.67,.21,.25]);
       }
