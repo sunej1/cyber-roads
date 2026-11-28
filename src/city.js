@@ -14,6 +14,7 @@ import { streetDetails } from './streetscape.js';
 import { addStreetLamps, streetLighting } from './street-lighting.js';
 import { addPlants, plant, windTime } from './vegetation.js';
 import { addLanternMile } from './lantern-mile.js';
+import { waterSlope } from './water-surface.js';
 
 const { Color, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial }=THREE;
 const lightColors=['#ffc479','#62d8ed','#ff785c','#e4b154','#fff1a4','#add27e'];
@@ -78,7 +79,7 @@ function sky(parent) {
 
 function water(parent) {
   const material = new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, worldOffset: { value: new THREE.Vector2() } },
+    uniforms: { time: { value: 0 } },
     vertexShader: `
       varying vec3 worldPos;
       void main() {
@@ -88,23 +89,22 @@ function water(parent) {
       }`,
     fragmentShader: `
       uniform float time;
-      uniform vec2 worldOffset;
       varying vec3 worldPos;
+      ${waterSlope}
       void main() {
-        vec2 p = worldPos.xz + worldOffset;
-        vec3 ray = normalize(worldPos - cameraPosition);
-        float horizon = pow(1.0-abs(ray.y),7.0);
-        float waves = sin(p.y*.123+p.x*.028+time*.85) * sin(p.y*.081-p.x*.019-time*.67);
-        float chop = sin(p.y*.31+p.x*.14+sin(p.x*.055+time*.3)*1.7+time)
-          * sin(p.y*.23-p.x*.085+sin(p.y*.16)*1.4-time*.77);
-        float ripples = max(0.0, waves*.66+chop*.34);
-        float glow = pow(max(0.0,dot(normalize(vec2(-.5,-1.0)),normalize(ray.xz))), 22.0);
-        vec3 color = vec3(.009,.016,.019) + vec3(.038,.045,.043)*horizon;
-        color += (vec3(.013,.024,.026) + vec3(.16,.102,.047)*glow*horizon) * ripples;
-        float distanceToLand = min(abs(p.y-925.0),abs(p.x-730.0));
-        float harbor = exp(-distanceToLand*.006) * exp(-dot(p/1550.0,p/1550.0));
-        float ribbons = pow(max(0.0,sin(p.x*.08+p.y*.007+chop*.8)*sin(p.x*.15-waves*.8)), 3.0);
-        color += mix(vec3(.22,.095,.034),vec3(.043,.11,.12),.5+.5*sin(p.x*.018)) * harbor * ribbons * (.35+ripples);
+        vec3 toEye = cameraPosition - worldPos;
+        vec3 view = normalize(toEye);
+        vec2 slope = waterSlope(worldPos.xz,time) * (1.0-smoothstep(110.0,440.0,length(toEye)));
+        vec3 normal = normalize(vec3(-slope.x,1.0,-slope.y));
+        vec3 reflected = reflect(-view,normal);
+        float facing = clamp(dot(view,normal),0.0,1.0);
+        float fresnel = .035 + .965*pow(1.0-facing,5.0);
+        vec3 skyColor = mix(vec3(.078,.091,.096),vec3(.011,.024,.032),smoothstep(0.0,.44,reflected.y));
+        vec3 waterColor = vec3(.006,.022,.029) + vec3(.016,.055,.062)*max(0.0,slope.y);
+        vec3 color = mix(waterColor,skyColor,fresnel);
+        vec3 moon = normalize(vec3(.14,.25,-1.0));
+        float shine = pow(max(0.0,dot(reflected,moon)),70.0);
+        color += vec3(.16,.24,.27)*shine*(.27+.73*fresnel);
         gl_FragColor = vec4(color,1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -655,6 +655,24 @@ function drawTile(tile, detail) {
         paved.push([x,.17,z,93,.34,71,yaw]);
         const wx=(front.ax+front.bx)/2, wz=(front.az+front.bz)/2;
         line(paved,x,.19,z,wx+front.inX*(front.road.width/2+1.1),wz+front.inZ*(front.road.width/2+1.1),9,.32);
+        if (lot.quay) {
+          const {x:along,side,crossing}=lot.quay;
+          const finger=along-side*22;
+          line(paved,x,.166,z,along,z,8,.29);
+          line(docks,along,.086,z,finger,z,13,.48,'#626c65');
+          if (detail) {
+            if (crossing) for (let offset=-crossing.half+1;offset<crossing.half-1;offset+=2.1) {
+              marks.push([crossing.center+offset,.357,z,.82,.028,6.2,0,'#cbbd94']);
+            }
+            for (const dz of [-5.8,5.8]) {
+              for (const dx of [10,21]) {
+                docks.push([along-side*dx,-1.71,z+dz,1.1,4.84,1.1,0,'#4b5049']);
+              }
+              line(rails,along-side*9,1.35,z+dz,finger,z+dz,.15,.19);
+            }
+            lights.push([finger,1.18,z-5.8,.62,.28,.62],[finger,1.18,z+5.8,.62,.28,.62]);
+          }
+        }
         const [bx,bz]=orient(0,-15);
         basins.push([bx,.31,bz,shorefront?35:26,.22,10,yaw]);
         for (const a of [-29,29]) for (const b of [-23,20]) {
@@ -767,19 +785,31 @@ function drawTile(tile, detail) {
       }
     }
   }
+  const landings=tile.blocks.filter(lot=>lot.quay);
   for (const side of [-1,1]) for (let z=-tileSize/2;z<tileSize/2;z+=20) {
     const bank=riverAt(tile.x,tile.z+z),next=riverAt(tile.x,tile.z+z+20);
-    const x=bank.center+side*(bank.width+16)-tile.x;
-    const tx=next.center+side*(next.width+16)-tile.x;
-    const midpoint=(x+tx)/2+tile.x;
+    const x=bank.center+side*(bank.width+4.4)-tile.x;
+    const tx=next.center+side*(next.width+4.4)-tile.x;
+    const midpoint=(x+tx)/2+tile.x+side*7.2;
     if (tileAt(midpoint)!==tileAt(tile.x) || districtForPosition(midpoint,z+tile.z+10).id!=='canal'
-      || groundAt(x+tile.x,z+tile.z)<-1.7) continue;
-    line(paved,x+side*4,.12,z,tx+side*4,z+20,8.3,.28);
+      || groundAt(x+tile.x+side*15,z+tile.z)<-1.7) continue;
+    line(paved,x+side*7.2,.145,z,tx+side*7.2,z+20,15.5,.29);
+    line(bridges,x,-1.86,z,tx,z+20,2.82,4.27);
     if (!detail) continue;
-    line(curbs,x,-.74,z,tx,z+20,2.65,2.2);
-    if (Math.round(z/20)%2===0) {
-      curbs.push([x,.45,z,1.3,1.55,1.25]);
-      lights.push([x,1.28,z,.61,.29,.60]);
+    const at=t=>THREE.MathUtils.lerp(x,tx,t);
+    const landing=landings.find(lot=>lot.quay.side===side && Math.abs(lot.z-z-10)<16.6);
+    const low=landing ? THREE.MathUtils.clamp((landing.z-6.6-z)/20,0,1) : 1;
+    const high=landing ? THREE.MathUtils.clamp((landing.z+6.6-z)/20,0,1) : 1;
+    for (const [a,b] of [[0,low],[high,1]]) {
+      if (b>a) line(rails,at(a),1.46,z+a*20,at(b),z+b*20,.15,.22);
+    }
+    for (const t of [0,.33,.66]) {
+      if (t<low || t>high) rails.push([at(t),.87,z+t*20,.24,1.28,.24]);
+    }
+    if (low>0 && Math.round(z/20)%2===0) {
+      docks.push([x-side*.81,-1.41,z,.94,3.4,1.25,0,'#6b654e']);
+      curbs.push([x+side*1.1,.79,z,.76,1.01,.76]);
+      lights.push([x+side*1.1,1.39,z,.59,.28,.60]);
     }
   }
   const junctions=[];
@@ -984,7 +1014,6 @@ export function createCity(scene) {
       const x = position.x - origin.x, z = position.z - origin.z;
       dome.position.set(x, position.y, z);
       ocean.position.set(x, -3, z);
-      ocean.material.uniforms.worldOffset.value.set(origin.x % 40960, origin.z % 40960);
       city.position.set(-origin.x,0,-origin.z);
       city.visible = Math.max(Math.abs(position.x), Math.abs(position.z)) < 5100;
       if (city.visible) updateTraffic(time);

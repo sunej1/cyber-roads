@@ -251,6 +251,19 @@ test('Canal Exchange market passages join shops and leave receiving courts acces
   }
 });
 
+test('the canal plaza connects across its shore street to a clear public landing', () => {
+  const tile=generateTile(0,3);
+  const lot=tile.blocks.find(lot=>lot.quay);
+  assert.equal(lot?.use,'plaza');
+  const {x,side,crossing}=lot.quay;
+  assert.ok(crossing && (crossing.center-x)*side>crossing.half);
+  assert.ok((lot.x-crossing.center)*side>crossing.half);
+  const path={x:(x+lot.x)/2,z:lot.z,w:8,d:Math.abs(x-lot.x),yaw:Math.PI/2};
+  assert.ok(tile.buildings.every(b=>!footprintsOverlap(b,path,2)));
+  assert.ok(groundAt(tile.x+x,tile.z+lot.z)>-2.4);
+  assert.ok(groundAt(tile.x+x-side*22,tile.z+lot.z)<-3);
+});
+
 test('Switchyard arcades meet their office podiums and keep the avenue open', () => {
   const {blocks,roads}=generateTile(0,4);
   const frontages=blocks.flatMap(lot=>lot.buildings.filter(b=>b.type===17).map(arcade=>[lot,arcade]));

@@ -290,6 +290,29 @@ export function generateTile(col, row) {
       }
     }
   }
+  for (const lot of blocks.filter(lot=>lot.use==='plaza' && lot.shorefront)) {
+    const bank=riverAt(lot.x+x,lot.z+z);
+    const side=Math.sign(lot.x+x-bank.center);
+    const quayX=bank.center+side*(bank.width+11.6)-x;
+    const length=(lot.x-quayX)*side;
+    if (length<10 || length>105 || tileAt(quayX+x)!==col) continue;
+    const path={x:(lot.x+quayX)/2,z:lot.z,w:8,d:length,yaw:Math.PI/2};
+    if (buildings.some(b=>footprintsOverlap(b,path,2))) continue;
+    const crossings=[];
+    for (const road of roads) {
+      const t=(lot.z-road.z)/(road.toZ-road.z);
+      if (!(t>0 && t<1)) continue;
+      const center=MathUtils.lerp(road.x,road.toX,t);
+      if ((center-quayX)*side<0 || (lot.x-center)*side<0) continue;
+      const half=road.width/2*Math.hypot(road.toX-road.x,road.toZ-road.z)/Math.abs(road.toZ-road.z);
+      const blocked=road.bridge || road.kind==='rail' || half>13 || (center-quayX)*side<half;
+      crossings.push({center,half,blocked});
+    }
+    if (crossings.length>1) continue;
+    const crossing=crossings[0];
+    if (crossing?.blocked) continue;
+    lot.quay={x:quayX,side,crossing};
+  }
   if (district.id === 'downtown') {
     for (const shift of [-139,112]) {
       spinePoint(track,z+shift,outline);

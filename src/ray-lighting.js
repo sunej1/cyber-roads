@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
 import { streetFog } from './weather.js';
+import { waterSlope } from './water-surface.js';
 
 export const wetPatches = /* glsl */ `
   float wetPatches(vec2 at) {
@@ -66,6 +67,7 @@ const traceFragment = /* glsl */ `
   uniform mat4 waterProjection;
   uniform float time;
   ${depthMath}
+  ${waterSlope}
 
   float depthGap(vec3 ray, vec2 uv) {
     return viewZ(texture2D(sceneDepth,uv).r)-ray.z;
@@ -125,9 +127,14 @@ const traceFragment = /* glsl */ `
     float confidence=mirror.w>0.0 ? smoothstep(.005,.083,min(edge.x,edge.y)) : 0.0;
     vec3 bounce=vec3(0.0);
     if (confidence>0.0) {
-      vec2 at=world.xz*(6.28318530718/640.0);
-      float ripple=sin(at.x*147.0+at.y*184.0+time*4.1)*cos(at.y*125.0-at.x*82.0-time*2.2);
-      uv+=vec2(ripple,cos(ripple*3.2))*(water?.008:.0031);
+      if (water) {
+        vec2 slope=waterSlope(world.xz,time);
+        uv+=vec2(dot(slope,viewToWorld[0].xz),dot(slope,viewToWorld[2].xz))*vec2(.051,.075);
+      } else {
+        vec2 at=world.xz*(6.28318530718/640.0);
+        float ripple=sin(at.x*147.0+at.y*184.0+time*4.1)*cos(at.y*125.0-at.x*82.0-time*2.2);
+        uv+=vec2(ripple,cos(ripple*3.2))*.0031;
+      }
       vec2 spread=vec2(.0028,.0037)*(water?1.45:mix(1.62,.81,wetness));
       if (water) {
         bounce=texture2D(waterMirror,uv).rgb*.50;
@@ -140,6 +147,7 @@ const traceFragment = /* glsl */ `
     vec4 detail=surface.z> -190.0 ? screenReflection(surface) : vec4(0.0);
     float fresnel=pow(1.0-max(0.0,dot(viewUp,-normalize(surface))),1.45);
     float strength=(.14+.38*fresnel)*wetness*(1.0-smoothstep(305.0,455.0,-surface.z));
+    if (water) strength*=1.55;
     return min(mix(bounce*confidence,detail.rgb,detail.a),vec3(4.4))*strength;
   }
 
