@@ -98,24 +98,27 @@ function pavedRoads(col, row) {
   return { roads, streetAt };
 }
 
-function joinMarketFrontage(lot, skywalks, clearsGuide) {
+function joinMarketFrontage(lot, skywalks, fits, receiving = false) {
   const {front}=lot;
   const span=Math.hypot(front.bx-front.ax,front.bz-front.az);
   const dx=(front.bx-front.ax)/span, dz=(front.bz-front.az)/span;
   const at=(along,inset)=>({x:front.ax+dx*along+front.inX*inset,z:front.az+dz*along+front.inZ*inset});
-  const shops=lot.buildings.map(b=>({along:(b.x-front.ax)*dx+(b.z-front.az)*dz,w:b.w}))
+  const shops=lot.buildings.filter(b=>b.yaw===front.yaw && b.h>=13.2)
+    .map(b=>({along:(b.x-front.ax)*dx+(b.z-front.az)*dz,b}))
     .sort((a,b)=>a.along-b.along);
   const curb=front.road.width/2;
   for (let i=1;i<shops.length;i++) {
     const left=shops[i-1], right=shops[i];
-    const start=left.along+left.w/2, end=right.along-right.w/2;
+    const start=left.along+left.b.w/2, end=right.along-right.b.w/2;
     const gap=end-start, middle=(start+end)/2;
-    const from=at(start-1.4,curb+13.5), to=at(end+1.4,curb+13.5);
-    const passage={...at(middle,curb+13.5),w:12,d:gap+2.8,yaw:Math.atan2(dx,dz),
+    if (gap<4 || gap>25) continue;
+    const overlap=receiving ? 1.4 : 2.5;
+    const from=at(start-overlap,curb+13.5), to=at(end+overlap,curb+13.5);
+    const passage={...at(middle,curb+13.5),w:12,d:gap+overlap*2,yaw:Math.atan2(dx,dz),
       base:5.2,h:13.2,from,to,marketPassage:true};
-    if (!clearsGuide(passage)) continue;
+    if (!fits(passage) || lot.buildings.some(b=>b!==left.b && b!==right.b && footprintsOverlap(b,passage,.3))) continue;
     skywalks.push(passage);
-    if (gap>=12) lot.receivingGate=at(middle,curb);
+    if (receiving && gap>=12) lot.receivingGate=at(middle,curb);
   }
 }
 
@@ -279,14 +282,19 @@ export function generateTile(col, row) {
       if (back) for (const at of [.27,.73]) {
         add(lot,back,at,32+random()*7,30+random()*8,16+random()*26,14,5);
       }
-      // shortcut: fit the two inland Sable frontages by hand, generalize after surveying other canal lots.
+      // These two loading courts reserve the gaps already fitted around LOCK 04.
       if (col===0 && row===3 && gx===-1 && (gz===11 || gz===12)) {
         if (gz===11) add(lot,front,.27,36,22,16,16,5);
         else {
           add(lot,front,.298,26,16,15,16,4);
           add(lot,front,.80,38,22,16,16,4);
         }
-        joinMarketFrontage(lot,skywalks,clearsGuide);
+        joinMarketFrontage(lot,skywalks,clearsGuide,true);
+      } else if (!shorefront) {
+        for (const [at,retry] of [[.21,.26],[.5,.5],[.79,.74]]) {
+          add(lot,front,at,24,18,17.8,16,5) || add(lot,front,retry,21,15,16,16,4);
+        }
+        joinMarketFrontage(lot,skywalks,passage=>fitsLot(lot,passage) && clearsGuide(passage));
       }
     }
   }

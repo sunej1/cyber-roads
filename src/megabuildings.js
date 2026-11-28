@@ -74,18 +74,15 @@ export function towerMasses(b) {
       }
       break;
 
-    // Neo-Kitsch: space-consuming ceramic shells and open terraces.
+    // An offset lift core serves two terraced slabs and their deep transfer floor.
     case 4:
-      block(.10,.94,.39,.44,{shift:-flip*.035,sides:8,skin:'#78685b'});
-      for (const [i,y] of (tall ? [.35,.73] : [.56]).entries()) {
-        const shift=(i%2 ? flip : -flip)*.066;
-        const shell=.84+i*.02;
-        block(y-.16,y-.076,.48,.45,{shift,sides:12,topW:shell,topD:.89,skin:'#d9c9a9'});
-        block(y-.076,y+.035,shell,.89,{shift,sides:12,topW:shell-.044,topD:.82});
-        block(y+.035,y+.103,shell-.025,.84,{shift,sides:12,topW:.56,topD:.55,skin:'#e9dcba'});
-        block(y+.105,y+.125,.55,.50,{shift,sides:12,skin:'#917750'});
-      }
-      block(.91,1,.26,.30,{shift:flip*.049,sides:8,topW:.16,topD:.20,skin:'#c8ad7a'});
+      block(podium,.975,.24,.54,{shift:flip*.355,slide:-.12,skin:'#6c675b',bevel:.055});
+      block(podium,.48,.73,.72,{shift:flip*.103,slide:.03,bevel:.062});
+      block(.48,.534,.88,.85,{shift:flip*.044,slide:.02,topD:.81,skin:'#8c8068',bevel:.068});
+      block(.534,.848,.61,.64,{shift:-flip*.124,slide:-.035,bevel:.082});
+      block(.848,.898,.69,.72,{shift:-flip*.124,slide:-.035,skin:'#776e5d',bevel:.072});
+      block(.898,.932,.36,.43,{shift:-flip*.22,slide:-.08,skin:'#646962',bevel:.08});
+      block(.975,1,.21,.43,{shift:flip*.355,slide:-.13,skin:'#9b8e74',bevel:.08});
       break;
 
     // Metabolist conservatories: cantilevered glasshouses plug into a single service spine.

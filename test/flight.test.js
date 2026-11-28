@@ -238,7 +238,8 @@ test('Canal Exchange market passages join shops and leave receiving courts acces
     }
   }
   const passages=tile.skywalks.filter(walk=>walk.marketPassage);
-  assert.equal(passages.length,4);
+  assert.ok(passages.length>4);
+  assert.ok(passages.some(walk=>walk.z+tile.z>2100));
   for (const walk of passages) {
     const y=walk.base+2;
     const from=tile.buildings.find(building=>intersectsBuilding({...walk.from,y},building,0));

@@ -308,15 +308,17 @@ function towerSystems(b, solids, pipes, foliage, lights) {
       break;
     }
     case 4:
-      for (const side of [-1,1]) {
-        link(solids,[side*.43,.12,0],[side*.29,.54,0],Math.min(w*.047,2.8),'#b29b6c');
-        link(solids,[side*.29,.54,0],[side*.40,.78,0],Math.min(w*.045,2.6),'#b29b6c');
+      for (const p of [-.20,.33]) {
+        link(solids,[-flip*.435,.14,p],[-flip*.34,.49,p],Math.min(w*.061,3.4),'#948572');
+        link(solids,[-flip*.34,.49,p],[flip*.04,.16,p],Math.min(w*.041,2.4),'#6e685a');
       }
-      for (const y of (h>=74 ? [.466,.846] : [.676])) {
-        for (const [u,p] of [[-.19,.13],[.16,.16],[-.08,-.19]]) {
-          part(foliage,u,y,p,.15,.046,.13,'#647f55');
-        }
+      for (const y of [.25,.46,.68,.86]) {
+        part(solids,flip*.475,y,-.12,.033,.025,.32,'#8c8975');
+        part(lights,flip*.496,y+.014,-.05,.007,.0024,.16);
       }
+      for (const side of [-1,1]) part(lights,flip*.044,.503,.02+side*.405,.59,.0026,.011);
+      part(foliage,-flip*.30,.55,.32,.17,.035,.09,'#647f55');
+      part(foliage,flip*.22,.913,.17,.13,.029,.13,'#637d59');
       break;
     case 5:
       link(pipes,[-flip*.32,.13,-.32],[-flip*.32,.91,-.26],Math.min(w*.074,3.2),'#829785');
