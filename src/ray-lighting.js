@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
+import { tileSize } from './extent.js';
 import { streetFog } from './weather.js';
 import { waterSlope } from './water-surface.js';
 
@@ -248,6 +249,10 @@ export class RayLightingPass extends Pass {
     this.fixtures = fixtures;
     this.origin = origin;
     this.lastOrigin = new THREE.Vector3();
+    this.lastEye = new THREE.Vector3();
+    this.lastOrientation = new THREE.Quaternion();
+    this.originTranslation = new THREE.Matrix4();
+    this.reusedWater = false;
     this.raysEnabled = false;
     this.mirrorIndex = 0;
     this.mirrorsStale = true;
@@ -303,15 +308,33 @@ export class RayLightingPass extends Pass {
     this.capture.far = 1440;
     this.capture.updateProjectionMatrix();
     this.capture.updateMatrixWorld();
-    if (this.mirrorsStale || !this.lastOrigin.equals(this.origin)) {
+    const rebased = !this.lastOrigin.equals(this.origin);
+    const eye = this.position.copy(this.capture.position).add(this.origin);
+    // Only reuse a fresh water capture during continuous, single-axis flight.
+    const reuseWater = !this.mirrorsStale && rebased && !this.reusedWater && this.mirrorIndex === 0
+      && this.lastOrigin.distanceToSquared(this.origin) === tileSize ** 2
+      && eye.distanceToSquared(this.lastEye) <= 1
+      && Math.abs(this.lastOrientation.dot(this.capture.quaternion)) >= .99996;
+    if (this.mirrorsStale || (rebased && !reuseWater)) {
       for (const mirror of this.mirrors) this.renderMirror(renderer, mirror);
-      this.lastOrigin.copy(this.origin);
       this.mirrorsStale = false;
+    } else if (reuseWater) {
+      this.originTranslation.makeTranslation(
+        this.origin.x - this.lastOrigin.x,
+        this.origin.y - this.lastOrigin.y,
+        this.origin.z - this.lastOrigin.z,
+      );
+      this.mirrors[1].projection.multiply(this.originTranslation);
+      this.renderMirror(renderer, this.mirrors[0]);
     } else {
-      // The last capture is reprojected while the other surface is refreshed.
+      // Keep the ordinary capture order so the road stays current after a rebase.
       this.renderMirror(renderer, this.mirrors[this.mirrorIndex]);
       this.mirrorIndex = 1 - this.mirrorIndex;
     }
+    this.reusedWater = reuseWater;
+    this.lastOrigin.copy(this.origin);
+    this.lastEye.copy(eye);
+    this.lastOrientation.copy(this.capture.quaternion);
   }
 
   renderMirror(renderer, { reflector, projection }) {
