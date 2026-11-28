@@ -98,13 +98,34 @@ function pavedRoads(col, row) {
   return { roads, streetAt };
 }
 
+function joinMarketFrontage(lot, skywalks, clearsGuide) {
+  const {front}=lot;
+  const span=Math.hypot(front.bx-front.ax,front.bz-front.az);
+  const dx=(front.bx-front.ax)/span, dz=(front.bz-front.az)/span;
+  const at=(along,inset)=>({x:front.ax+dx*along+front.inX*inset,z:front.az+dz*along+front.inZ*inset});
+  const shops=lot.buildings.map(b=>({along:(b.x-front.ax)*dx+(b.z-front.az)*dz,w:b.w}))
+    .sort((a,b)=>a.along-b.along);
+  const curb=front.road.width/2;
+  for (let i=1;i<shops.length;i++) {
+    const left=shops[i-1], right=shops[i];
+    const start=left.along+left.w/2, end=right.along-right.w/2;
+    const gap=end-start, middle=(start+end)/2;
+    const from=at(start-1.4,curb+13.5), to=at(end+1.4,curb+13.5);
+    const passage={...at(middle,curb+13.5),w:12,d:gap+2.8,yaw:Math.atan2(dx,dz),
+      base:5.2,h:13.2,from,to,marketPassage:true};
+    if (!clearsGuide(passage)) continue;
+    skywalks.push(passage);
+    if (gap>=12) lot.receivingGate=at(middle,curb);
+  }
+}
+
 export function generateTile(col, row) {
   if (coreTile(col, row)) return null;
   const x = col * tileSize, z = row * tileSize;
   const seed = tileSeed(col, row);
   const random = randomFor(seed);
   const district = districtForPosition(x, z);
-  const buildings = [], blocks = [];
+  const buildings = [], blocks = [], skywalks = [];
   const points = landmarksNear(x, z, edge + 155);
   const landmarks = [];
   const reservations = points.map(point=>({ ...point,x:point.x-x,z:point.z-z }));
@@ -232,9 +253,17 @@ export function generateTile(col, row) {
       if (back) for (const at of [.27,.73]) {
         add(lot,back,at,32+random()*7,30+random()*8,16+random()*26,14,5);
       }
+      // shortcut: fit the two inland Sable frontages by hand, generalize after surveying other canal lots.
+      if (col===0 && row===3 && gx===-1 && (gz===11 || gz===12)) {
+        if (gz===11) add(lot,front,.27,36,22,16,16,5);
+        else {
+          add(lot,front,.298,26,16,15,16,4);
+          add(lot,front,.80,38,22,16,16,4);
+        }
+        joinMarketFrontage(lot,skywalks,clearsGuide);
+      }
     }
   }
-  const skywalks = [];
   if (district.id === 'downtown') {
     for (const shift of [-139,112]) {
       spinePoint(track,z+shift,outline);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Vector3 } from 'three';
-import { closestSpine, coreEdge, districtForPosition, landmarksNear, spinePoint, streetVertex, tileAt, tileSize } from '../src/extent.js';
+import { closestSpine, coreEdge, districtForPosition, groundAt, landmarksNear, spinePoint, streetVertex, tileAt, tileSize } from '../src/extent.js';
 import { airCircuits, streetRuns } from '../src/traffic.js';
 import { gardenBasins, gardenWalks, harborMarket, isOnLand, lanternMile, streetPoint, streets } from '../src/meridian-plan.js';
 import { generateTile, localTraffic } from '../src/world.js';
@@ -220,6 +220,35 @@ test('Lantern Mile keeps narrow shops on both sides of every market block under 
     && Math.abs(p.x-x)<24);
   assert.ok(guide.length>100);
   assert.ok(guide.every(p=>shops.every(b=>!intersectsBuilding(p,b,15))));
+});
+
+test('Canal Exchange market passages join shops and leave receiving courts accessible', () => {
+  const tile=generateTile(0,3);
+  const courts=tile.blocks.filter(lot=>lot.receivingGate);
+  assert.equal(courts.length,2);
+  for (const lot of courts) {
+    assert.equal(lot.buildings.length,3);
+    for (const [depth,w,d] of [[35.15,9,63.7],[67,54,32]]) {
+      const shape={x:lot.receivingGate.x+depth*lot.front.inX,z:lot.receivingGate.z+depth*lot.front.inZ,w,d,yaw:lot.yaw};
+      assert.ok(tile.buildings.every(building=>!footprintsOverlap(building,shape,0)));
+      const sin=Math.sin(shape.yaw), cos=Math.cos(shape.yaw);
+      for (const x of [-w/2,w/2]) for (const z of [-d/2,d/2]) {
+        assert.ok(groundAt(tile.x+shape.x+x*cos+z*sin,tile.z+shape.z-x*sin+z*cos)>-1.6);
+      }
+    }
+  }
+  const passages=tile.skywalks.filter(walk=>walk.marketPassage);
+  assert.equal(passages.length,4);
+  for (const walk of passages) {
+    const y=walk.base+2;
+    const from=tile.buildings.find(building=>intersectsBuilding({...walk.from,y},building,0));
+    const to=tile.buildings.find(building=>intersectsBuilding({...walk.to,y},building,0));
+    assert.ok(from?.retail && to?.retail && from!==to);
+    for (let z=walk.z+tile.z-32;z<=walk.z+tile.z+32;z+=2) {
+      const point=spinePoint(0,z);
+      assert.ok(!intersectsBuilding({x:point.x-tile.x,y:point.y,z:point.z-tile.z},walk,15));
+    }
+  }
 });
 
 test('the central air lane weaves between tower walls and passes the five mapped landmarks', () => {

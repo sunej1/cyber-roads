@@ -577,6 +577,33 @@ function addSableLoadingBay(tile, cargo, paint) {
   }
 }
 
+function addReceivingCourt({front,yaw,receivingGate}, {paved,yards,docks,marks,marketPaths}) {
+  const at=(across,depth)=>[receivingGate.x+across*Math.cos(yaw)+depth*front.inX,
+    receivingGate.z-across*Math.sin(yaw)+depth*front.inZ];
+  const [x,z]=at(0,67);
+  const [mouthX,mouthZ]=at(0,3.3);
+  line(paved,mouthX,.125,mouthZ,x,z,9,.28);
+  yards.push([x,.145,z,54,.29,32,yaw]);
+  const ochre='#bd9456';
+  for (const across of [-15,15]) {
+    for (const side of [-1,1]) {
+      const [px,pz]=at(across+side*6.5,67);
+      marks.push([px,.309,pz,.44,.024,16,yaw,ochre]);
+    }
+    const [px,pz]=at(across,75);
+    marks.push([px,.309,pz,13.4,.024,.44,yaw,ochre]);
+  }
+  const [px,pz]=at(-15,69);
+  const [caseX,caseZ]=at(-17.3,69);
+  const [binX,binZ]=at(-12.8,69);
+  docks.push([px,.47,pz,9.8,.36,7.2,yaw,'#655843'],
+    [caseX,1.77,caseZ,4.1,2.24,6.6,yaw,'#557774'],
+    [binX,1.51,binZ,4.3,1.72,6.6,yaw,'#927659']);
+  const walkAt=t=>[THREE.MathUtils.lerp(front.ax,front.bx,t)+front.inX*(front.road.width/2+3.25),
+    THREE.MathUtils.lerp(front.az,front.bz,t)+front.inZ*(front.road.width/2+3.25)];
+  marketPaths.push([...walkAt(.22),...walkAt(.88),6], [...at(2.4,6),...at(2.4,74),3]);
+}
+
 function drawTile(tile, detail) {
   const group=new Group();
   group.add(tileTerrain(tile));
@@ -602,7 +629,8 @@ function drawTile(tile, detail) {
       }
     }
   };
-  for (const {x,z,use,yaw,front,rail,shorefront,buildings,kind} of tile.blocks) {
+  for (const lot of tile.blocks) {
+    const {x,z,use,yaw,front,rail,shorefront,buildings,kind,receivingGate}=lot;
     const sin=Math.sin(yaw), cos=Math.cos(yaw);
     const orient=(across,depth)=>[x+across*cos+depth*sin,z-across*sin+depth*cos];
     if (detail) for (const building of buildings) entryPath(paved,building);
@@ -683,7 +711,9 @@ function drawTile(tile, detail) {
     } else if (use==='market' || use==='urban') {
       if (detail) {
         paved.push([x,.08,z,use==='market'?107:114,.18,112,yaw]);
-        if (use==='market') {
+        if (receivingGate) {
+          addReceivingCourt(lot,{paved,yards,docks,marks,marketPaths});
+        } else if (use==='market') {
           for (const offset of [-15,5,25]) {
             docks.push([x+offset,2.8,z,8.8,.72,6.9,0,offset===5?'#60474b':'#4e5e66']);
             curbs.push([x+offset-4,1.57,z,.36,3.13,.38],[x+offset+4,1.57,z,.36,3.13,.38]);
@@ -706,14 +736,15 @@ function drawTile(tile, detail) {
     if (!detail) continue;
     const dx=to.x-from.x,dz=to.z-from.z;
     const nx=-dz/d,nz=dx/d;
+    const step=walk.marketPassage ? Math.max(.082,3/d) : .082;
     for (const side of [-1,1]) {
       const s=side*(walk.w*.5-.4);
       const lampsOffset=side*walk.w*.506;
       line(glazing,from.x+nx*s,base+4.35,from.z+nz*s,to.x+nx*s,to.z+nz*s,.46,4.72);
       line(lights,from.x+nx*lampsOffset,base+1.72,from.z+nz*lampsOffset,
         to.x+nx*lampsOffset,to.z+nz*lampsOffset,.23,.25);
-      for (let at=.06;at<.98;at+=.082) {
-        const next=Math.min(1,at+.079);
+      for (let at=.06;at<.98;at+=step) {
+        const next=Math.min(1,at+step-.003);
         const x=from.x+dx*at+nx*s,z=from.z+dz*at+nz*s;
         bridges.push([x,base+4,z,.64,6.9,.64]);
         beam(rails,x,base+1.5,z,from.x+dx*next+nx*s,h-1,from.z+dz*next+nz*s,.23,.26);
