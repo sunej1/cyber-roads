@@ -279,6 +279,19 @@ test('Switchyard arcades meet their office podiums and keep the avenue open', ()
   }
 });
 
+test('Foundry sheds occupy constrained lots without intruding on the kilns or flight lane', () => {
+  const tile=generateTile(0,6);
+  const sheds=tile.buildings.filter(b=>b.use==='works' && b.w<40);
+  assert.ok(sheds.length>=4);
+  for (const shed of sheds) {
+    assert.ok(tile.landmarks.every(kiln=>!footprintsOverlap(shed,kiln,11)));
+    for (let z=tile.z-320;z<tile.z+320;z+=6) {
+      const point=spinePoint(0,z);
+      assert.ok(!intersectsBuilding({x:point.x-tile.x,y:point.y,z:point.z-tile.z},shed,18));
+    }
+  }
+});
+
 test('Juniper terraces maintain a street wall and pedestrian access to the shared courts', () => {
   const tile=generateTile(0,7);
   const terraces=tile.blocks.filter(lot=>lot.use==='estate' && lot.court && lot.buildings.length===2);

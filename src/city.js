@@ -758,6 +758,26 @@ function drawTile(tile, detail) {
       }
     } else if (use==='works') {
       yards.push([x,.10,z,106,.22,115,yaw]);
+      if (detail) for (const b of buildings) {
+        const sin=Math.sin(b.yaw), cos=Math.cos(b.yaw);
+        const at=(u,v)=>[b.x+u*cos+(b.d/2+v)*sin,b.z-u*sin+(b.d/2+v)*cos];
+        const [ax,az]=at(0,3.5);
+        const [bx,bz]=at(0,14.6);
+        const width=Math.min(52,b.w*.79);
+        line(yards,ax,.17,az,bx,bz,width+4,.32);
+        docks.push([ax,5.9,az,width,.76,8.9,b.yaw,'#777050']);
+        for (const offset of [-.46,-.18,.18,.46]) {
+          const [px,pz]=at(width*offset,7.15);
+          curbs.push([px,2.8,pz,.46,5.6,.46,b.yaw]);
+          const [mx,mz]=at(width*offset,11.2);
+          marks.push([mx,.353,mz,.24,.034,7.9,b.yaw,'#bfa66d']);
+        }
+        for (const offset of [-.32,.32]) {
+          const [px,pz]=at(width*offset,4.9);
+          docks.push([px,1.19,pz,Math.min(5.7,width*.22),1.78,4.45,b.yaw,offset<0?'#687672':'#8c7354']);
+          lights.push([px,5.48,pz,1.9,.23,.35,b.yaw,'#e6bb78']);
+        }
+      }
     }
   }
 

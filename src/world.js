@@ -245,7 +245,12 @@ export function generateTile(col, row) {
     } else if (kind === 'industry') {
       if (rail) { lot.use=localZ<2?'yard':'tanks'; continue; }
       lot.use = 'works';
-      add(lot,front,.50,74+random()*25,53+random()*10,18+random()*18,random()<.67?15:10,3,'freight');
+      const hall=add(lot,front,.50,74+random()*25,53+random()*10,18+random()*18,random()<.67?15:10,3,'freight');
+      if (!hall) {
+        for (const at of [.24,.76]) {
+          add(lot,front,at,36,30,16,15,3) || add(lot,front,at,29,24,12,15,3);
+        }
+      }
     } else if (kind === 'outskirts') {
       if (shoreDistance<86 || (front.road.kind==='avenue' && access.length===1) || (localX===1 && localZ===1)) {
         lot.use='grove';
